@@ -1,0 +1,325 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 216 100% 10%;
+    --foreground: 120 20% 95%;
+    --card: 213 100% 17%;
+    --card-foreground: 120 20% 95%;
+    --popover: 213 100% 17%;
+    --popover-foreground: 120 20% 95%;
+    --primary: 193 100% 43%;
+    --primary-foreground: 216 100% 10%;
+    --secondary: 213 100% 17%;
+    --secondary-foreground: 120 20% 95%;
+    --muted: 216 30% 35%;
+    --muted-foreground: 216 15% 55%;
+    --accent: 193 100% 43%;
+    --accent-foreground: 216 100% 10%;
+    --destructive: 350 90% 55%;
+    --destructive-foreground: 120 20% 95%;
+    --border: 216 30% 25%;
+    --input: 216 30% 25%;
+    --ring: 193 100% 43%;
+    --radius: 0.625rem;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+    font-family: "Noto Sans SC", "Inter", -apple-system, sans-serif;
+    overflow: hidden;
+    user-select: none;
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+}
+
+/* ===== Terminal Styles ===== */
+.terminal-wrapper {
+  background: rgba(0, 18, 51, 0.75);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(238, 244, 237, 0.1);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5), inset 0 0 20px rgba(0, 180, 216, 0.05);
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.terminal-header {
+  height: 36px;
+  background: rgba(0, 40, 85, 0.5);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  display: flex;
+  align-items: center;
+  padding: 0 12px;
+  gap: 8px;
+}
+
+.terminal-btn {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  box-shadow: inset 0 0 2px rgba(0, 0, 0, 0.5);
+  transition: opacity 0.2s;
+}
+
+.terminal-btn:hover { opacity: 0.8; }
+.btn-close { background: #EF233C; }
+.btn-min { background: #F4D03F; }
+.btn-max { background: #2DC653; }
+
+.terminal-body {
+  font-family: "JetBrains Mono", "Fira Code", monospace;
+  color: #EEF4ED;
+  line-height: 1.6;
+  padding: 16px;
+  overflow-y: auto;
+  height: calc(100% - 36px);
+  font-size: 14px;
+}
+
+@media (max-width: 640px) {
+  .terminal-body { font-size: 12px; padding: 10px; }
+  .terminal-header { height: 30px; padding: 0 8px; }
+}
+
+.cursor {
+  background: #00B4D8;
+  width: 8px;
+  height: 16px;
+  display: inline-block;
+  animation: blink 1s step-end infinite;
+  vertical-align: text-bottom;
+  margin-left: 1px;
+}
+
+.text-cyan { color: #00B4D8; }
+.text-green { color: #2DC653; }
+.text-purple { color: #7B2CBF; }
+.text-muted-terminal { color: #5C677D; }
+
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+
+/* ===== Rolling Clock ===== */
+.time-column {
+  height: 24px;
+  overflow: hidden;
+  position: relative;
+  box-shadow: inset 0 0 4px rgba(0, 180, 216, 0.3);
+  border-radius: 4px;
+  padding: 0 2px;
+}
+
+@media (max-width: 640px) {
+  .time-column { height: 18px; }
+  .time-column:last-child { width: 18px; }
+}
+
+.time-column:last-child { width: 24px; }
+
+.time-digit {
+  font-family: "Orbitron", sans-serif;
+  font-size: 18px;
+  font-weight: 700;
+  color: #EEF4ED;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+@media (max-width: 640px) {
+  .time-digit { font-size: 13px; height: 18px; }
+}
+
+/* ===== Scrollbar ===== */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(0, 180, 216, 0.3); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(0, 180, 216, 0.5); }
+
+@media (max-width: 640px) {
+  ::-webkit-scrollbar { width: 3px; height: 3px; }
+}
+
+/* ===== Animations ===== */
+@keyframes fadeIn {
+  from { opacity: 0; transform: scale(0.95); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+@keyframes slideUp {
+  from { opacity: 0; transform: translateY(20px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes pulse-glow {
+  0%, 100% { box-shadow: 0 0 5px rgba(0, 180, 216, 0.3); }
+  50% { box-shadow: 0 0 20px rgba(0, 180, 216, 0.6); }
+}
+
+@keyframes slideDown {
+  from { transform: translateY(-100%); }
+  to { transform: translateY(0); }
+}
+
+@keyframes crtOff {
+  0% { transform: scaleY(1); filter: brightness(1); }
+  60% { transform: scaleY(0.005); filter: brightness(2); }
+  100% { transform: scaleY(0); filter: brightness(0); }
+}
+
+@keyframes powerOn {
+  0% { transform: scaleY(0); filter: brightness(3); }
+  50% { transform: scaleY(0.005); filter: brightness(2); }
+  100% { transform: scaleY(1); filter: brightness(1); }
+}
+
+.animate-fadeIn { animation: fadeIn 0.2s ease-out; }
+.animate-slideUp { animation: slideUp 0.3s ease-out; }
+.animate-slideDown { animation: slideDown 0.5s ease-out; }
+.animate-crtOff { animation: crtOff 0.8s ease-in forwards; }
+.animate-powerOn { animation: powerOn 0.8s ease-out forwards; }
+
+/* ===== Glass Panel ===== */
+.glass-panel {
+  background: rgba(0, 18, 51, 0.6);
+  backdrop-filter: blur(12px) saturate(180%);
+  -webkit-backdrop-filter: blur(12px) saturate(180%);
+  border: 1px solid rgba(238, 244, 237, 0.08);
+}
+
+.glass-panel-strong {
+  background: rgba(0, 18, 51, 0.85);
+  backdrop-filter: blur(20px) saturate(200%);
+  -webkit-backdrop-filter: blur(20px) saturate(200%);
+  border: 1px solid rgba(238, 244, 237, 0.1);
+}
+
+/* ===== App Icon ===== */
+.app-icon-card {
+  transition: all 0.2s ease;
+  border: 1px solid transparent;
+}
+
+.app-icon-card:hover {
+  border-color: rgba(0, 180, 216, 0.5);
+  box-shadow: 0 0 12px rgba(0, 180, 216, 0.2);
+  transform: translateY(-2px);
+}
+
+@media (max-width: 640px) {
+  .app-icon-card:hover {
+    transform: none;
+    box-shadow: none;
+  }
+}
+
+/* ===== Dock ===== */
+.dock-item { transition: all 0.15s cubic-bezier(0.25, 0.46, 0.45, 0.94); }
+
+/* ===== Window ===== */
+.window-shadow {
+  box-shadow: 0 8px 40px rgba(0, 0, 0, 0.6), 0 0 1px rgba(255, 255, 255, 0.1);
+}
+
+/* ===== Context Menu ===== */
+.context-menu-item { transition: background 0.1s; }
+.context-menu-item:hover { background: rgba(0, 180, 216, 0.15); }
+
+/* ===== Responsive ===== */
+@media (max-width: 640px) {
+  .hide-mobile { display: none !important; }
+}
+
+@media (min-width: 641px) {
+  .show-mobile-only { display: none !important; }
+}
+
+@media (max-width: 1024px) {
+  .hide-tablet { display: none !important; }
+}
+
+/* ===== Lock Screen ===== */
+.lock-screen {
+  background: linear-gradient(135deg, #001233 0%, #0a1628 50%, #001233 100%);
+}
+
+/* ===== Touch improvements ===== */
+@media (pointer: coarse) {
+  .touch-target {
+    min-height: 44px;
+    min-width: 44px;
+  }
+}
+
+/* ===== CRT Power Off Animation ===== */
+@keyframes crtOff {
+  0% {
+    opacity: 0;
+    transform: scaleY(1) scaleX(1);
+  }
+  30% {
+    opacity: 1;
+    transform: scaleY(1) scaleX(1);
+  }
+  50% {
+    opacity: 1;
+    transform: scaleY(0.01) scaleX(1);
+  }
+  70% {
+    opacity: 1;
+    transform: scaleY(0.001) scaleX(1);
+  }
+  100% {
+    opacity: 0;
+    transform: scaleY(0.001) scaleX(0.001);
+  }
+}
+
+/* ===== Flash Black (for reboot) ===== */
+@keyframes flashBlack {
+  0% {
+    background: white;
+    opacity: 1;
+  }
+  30% {
+    background: white;
+    opacity: 1;
+  }
+  60% {
+    background: black;
+    opacity: 1;
+  }
+  100% {
+    background: black;
+    opacity: 0;
+  }
+}
+
+/* ===== Power On Animation ===== */
+@keyframes powerOn {
+  0% {
+    opacity: 0;
+    filter: brightness(0);
+  }
+  50% {
+    opacity: 1;
+    filter: brightness(2);
+  }
+  100% {
+    opacity: 1;
+    filter: brightness(1);
+  }
+}
