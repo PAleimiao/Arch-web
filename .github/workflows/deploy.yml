@@ -18,10 +18,12 @@ jobs:
           node-version: '20'
 
       - name: Install dependencies
-        run: npm install --legacy-peer-deps
+        run: npm install --legacy-peer-deps || npm install --force
 
       - name: Build
-        run: npm run build
+        run: npx vite build --emptyOutDir
+        env:
+          NODE_ENV: production
 
       - name: Deploy to Cloudflare Pages
         uses: cloudflare/wrangler-action@v3
