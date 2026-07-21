@@ -24,10 +24,7 @@ jobs:
 
       - name: Remove large files (Cloudflare Pages limit: 25MB)
         run: |
-          # Find and remove files larger than 25MB
           find public -type f -size +25M -exec rm -f {} \;
-          find dist -type f -size +25M -exec rm -f {} \; 2>/dev/null || true
-          # Also check videos folder
           rm -f public/videos/*.mp4 2>/dev/null || true
 
       - name: Build
