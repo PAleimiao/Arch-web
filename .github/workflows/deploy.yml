@@ -17,10 +17,15 @@ jobs:
         with:
           node-version: '20'
 
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v2
+        with:
+          version: 8
+
       - name: Install dependencies
         run: |
           rm -f package-lock.json
-          npm install --legacy-peer-deps --no-audit --no-fund
+          pnpm install
         timeout-minutes: 10
 
       - name: Remove large files (Cloudflare Pages limit: 25MB)
@@ -29,7 +34,7 @@ jobs:
           rm -f public/videos/*.mp4 2>/dev/null || true
 
       - name: Build
-        run: npx vite build --emptyOutDir
+        run: pnpm run build
         env:
           NODE_ENV: production
 
