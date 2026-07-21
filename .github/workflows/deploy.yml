@@ -22,10 +22,22 @@ jobs:
           rm -f package-lock.json
           npm install
 
+      - name: Remove large files (Cloudflare Pages limit: 25MB)
+        run: |
+          # Find and remove files larger than 25MB
+          find public -type f -size +25M -exec rm -f {} \;
+          find dist -type f -size +25M -exec rm -f {} \; 2>/dev/null || true
+          # Also check videos folder
+          rm -f public/videos/*.mp4 2>/dev/null || true
+
       - name: Build
         run: ./node_modules/.bin/vite build --emptyOutDir
         env:
           NODE_ENV: production
+
+      - name: Remove large files from dist
+        run: |
+          find dist -type f -size +25M -exec rm -f {} \;
 
       - name: Deploy to Cloudflare Pages
         uses: cloudflare/wrangler-action@v3
