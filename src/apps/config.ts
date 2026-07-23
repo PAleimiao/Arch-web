@@ -85,8 +85,21 @@ export const APPS: AppConfig[] = [
   { id: 'timeshift', name: 'Timeshift', icon: 'Clock', category: '工具', description: '系统快照备份', defaultWidth: 600, defaultHeight: 400, component: 'BackupTool', color: '#06B6D4' },
   { id: 'bleachbit', name: 'BleachBit', icon: 'Trash2', category: '工具', description: '系统清理工具', defaultWidth: 600, defaultHeight: 450, component: 'Cleaner', color: '#EF4444' },
 
-    // ===== 游戏 =====
+      // ===== 游戏 =====
   { id: 'steam', name: '游戏中心', icon: 'Gamepad2', category: '游戏', description: 'GTA 网页版 — 无需下载，浏览器即开即玩', defaultWidth: 950, defaultHeight: 620, component: 'Steam', color: '#1B2838' },
+  { id: 'tetris', name: '俄罗斯方块', icon: 'Grid3X3', category: '游戏', description: '经典益智游戏', defaultWidth: 380, defaultHeight: 600, component: 'Tetris', color: '#9333EA' },
+  { id: 'snake', name: '贪吃蛇', icon: 'Snail', category: '游戏', description: '经典街机游戏', defaultWidth: 420, defaultHeight: 480, component: 'Snake', color: '#16A34A' },
+  { id: 'minesweeper', name: '扫雷', icon: 'Bomb', category: '游戏', description: '经典逻辑游戏', defaultWidth: 400, defaultHeight: 450, component: 'Minesweeper', color: '#DC2626' },
+  { id: '2048', name: '2048', icon: 'Hash', category: '游戏', description: '数字益智游戏', defaultWidth: 400, defaultHeight: 520, component: 'Game2048', color: '#D97706' },
+  { id: 'chess', name: '国际象棋', icon: 'Crown', category: '游戏', description: '策略棋盘游戏', defaultWidth: 520, defaultHeight: 560, component: 'Chess', color: '#92400E' },
+  { id: 'flappy-bird', name: 'Flappy Bird', icon: 'Bird', category: '游戏', description: '飞行小游戏', defaultWidth: 380, defaultHeight: 520, component: 'FlappyBird', color: '#F4D03F' },
+  { id: 'breakout', name: '打砖块', icon: 'Square', category: '游戏', description: '弹球打砖块', defaultWidth: 420, defaultHeight: 500, component: 'Breakout', color: '#F97316' },
+  { id: 'pong', name: '乒乓球', icon: 'Circle', category: '游戏', description: '经典对战', defaultWidth: 440, defaultHeight: 320, component: 'Pong', color: '#00B4D8' },
+  { id: 'tic-tac-toe', name: '井字棋', icon: 'X', category: '游戏', description: '三子棋对战', defaultWidth: 380, defaultHeight: 420, component: 'TicTacToe', color: '#7C3AED' },
+  { id: 'gomoku', name: '五子棋', icon: 'CircleDot', category: '游戏', description: '五子连线对战', defaultWidth: 520, defaultHeight: 580, component: 'Gomoku', color: '#5D4037' },
+  { id: 'sudoku', name: '数独', icon: 'Grid3X3', category: '游戏', description: '数字逻辑益智', defaultWidth: 420, defaultHeight: 520, component: 'Sudoku', color: '#1565C0' },
+  { id: 'memory-game', name: '记忆翻牌', icon: 'Brain', category: '游戏', description: '记忆配对游戏', defaultWidth: 420, defaultHeight: 480, component: 'MemoryGame', color: '#7B1FA2' },
+  { id: 'solitaire', name: '纸牌接龙', icon: 'Spade', category: '游戏', description: '经典纸牌游戏', defaultWidth: 520, defaultHeight: 480, component: 'Solitaire', color: '#2E7D32' },
 
 // ===== 图形 =====
   { id: 'gimp', name: 'GIMP', icon: 'Palette', category: '图形', description: '图像编辑器', defaultWidth: 1000, defaultHeight: 650, component: 'ImageEditor', color: '#716955' },
@@ -101,4 +114,4 @@ export const getAppById = (id: string): AppConfig | undefined => APPS.find(app =
 export const getAppsByCategory = (category: string): AppConfig[] =>
   category === '全部' ? APPS : APPS.filter(app => app.category === category);
 
-export const DOCK_APPS = ['firefox', 'filemanager', 'terminal', 'vscode', 'qq', 'wechat', 'obs', 'netease-music', 'steam', 'settings', 'calculator'];
+export const DOCK_APPS = ['firefox', 'filemanager', 'terminal', 'vscode', 'qq', 'wechat', 'obs', 'netease-music', 'steam', 'settings', 'calculator', 'sudoku'];
