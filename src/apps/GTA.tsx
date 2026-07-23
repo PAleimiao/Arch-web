@@ -5,10 +5,11 @@ const GTA_URLS = [
   { name: 'Mad Town Andreas', url: 'https://www.crazygames.com/game/mad-town-andreas-mafia-storie', desc: 'GTA风格开放世界网页游戏' },
   { name: 'Vice City Web', url: 'https://vc.web.app', desc: 'GTA Vice City WebAssembly版（需自备游戏文件解锁完整版）' },
   { name: 'Quenq Vice City', url: 'https://quenqvicecity.online/', desc: '免费在线Vice City，无需下载' },
+  { name: 'GTA-VC ARM', url: 'https://gta-vc.armdev.cn/', desc: '网页版GTA Vice City' },
 ];
 
 export default function GTA() {
-  const [activeUrl, setActiveUrl] = useState(GTA_URLS[0].url);
+  const [activeUrl, setActiveUrl] = useState(GTA_URLS[3].url);
   const [fullscreen, setFullscreen] = useState(false);
   const [key, setKey] = useState(0);
 
@@ -71,7 +72,7 @@ export default function GTA() {
           src={activeUrl}
           className="w-full h-full border-0"
           allow="fullscreen; gamepad"
-          sandbox="allow-scripts allow-same-origin allow-popups allow-forms allow-fullscreen"
+          sandbox="allow-scripts allow-same-origin allow-popups allow-forms"
           title="GTA Web"
         />
       </div>
