@@ -177,6 +177,13 @@ const appComponents: Record<string, React.ComponentType<any>> = {
 };
 
 export default function AppRenderer({ appId, windowId }: AppRendererProps) {
+  // 音乐播放器特殊处理：根据入口自动选中对应平台
+  if (appId === 'netease-music' || appId === 'qq-music') {
+    const MusicPlayerComp = appComponents[appId];
+    const defaultPlatform = appId === 'netease-music' ? 'netease' : 'qq';
+    return <MusicPlayerComp windowId={windowId} defaultPlatform={defaultPlatform} />;
+  }
+
   const Component = appComponents[appId];
 
   if (!Component) {
