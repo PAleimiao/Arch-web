@@ -28,7 +28,7 @@ export const APPS: AppConfig[] = [
   // ===== 影音 =====
   { id: 'obs', name: 'OBS Studio', icon: 'Camera', category: '影音', description: '开源直播录制软件', defaultWidth: 900, defaultHeight: 600, component: 'OBSStudio', color: '#302E31' },
   { id: 'netease-music', name: '网易云音乐', icon: 'Music', category: '影音', description: '在线音乐播放器', defaultWidth: 850, defaultHeight: 550, component: 'MusicPlayer', color: '#C20C0C' },
-  { id: 'qq-music', name: 'QQ音乐', icon: 'Music', category: '影音', description: 'QQ音乐客户端', defaultWidth: 850, defaultHeight: 550, component: 'MusicPlayer', color: '#31C27C' },
+  { id: 'qq-music', name: 'QQ音乐', icon: 'Music', category: '影音', description: '聚合音乐播放器 — 支持网易云/QQ/酷狗/B站/本地切换', defaultWidth: 850, defaultHeight: 550, component: 'MusicPlayer', color: '#31C27C' },
   { id: 'vlc', name: 'VLC', icon: 'Play', category: '影音', description: '万能媒体播放器', defaultWidth: 700, defaultHeight: 450, component: 'VideoPlayer', color: '#E85A00' },
   { id: 'mpv', name: 'MPV', icon: 'PlayCircle', category: '影音', description: '极简播放器', defaultWidth: 600, defaultHeight: 400, component: 'VideoPlayer', color: '#691F69' },
   { id: 'tencent-video', name: '腾讯视频', icon: 'Tv', category: '影音', description: '视频流媒体', defaultWidth: 900, defaultHeight: 580, component: 'VideoPlatform', color: '#00BE06' },
