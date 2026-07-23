@@ -1,108 +1,14 @@
-<!doctype html>
-<html lang="zh-CN">
+<!DOCTYPE html>
+<html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
-    <meta name="theme-color" content="#001233" />
-    <meta name="apple-mobile-web-app-capable" content="yes" />
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-    <meta name="apple-mobile-web-app-title" content="ArchSim" />
-    <meta name="mobile-web-app-capable" content="yes" />
-    <meta name="application-name" content="Arch Linux Web Simulator" />
-    <meta name="description" content="基于 Web 的 Arch Linux 桌面环境模拟器，支持 60+ 应用程序" />
+    <link rel="icon" type="image/svg+xml" href="/arch-logo.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Arch Linux Web Simulator</title>
-    <link rel="manifest" href="/manifest.json" />
-    <link rel="apple-touch-icon" href="/icons/arch-logo.png" />
-    <link rel="icon" type="image/png" href="/icons/arch-logo.png" />
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&family=Noto+Sans+SC:wght@300;400;500;700&family=Orbitron:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
-    <style>
-      /* PWA splash screen */
-      body {
-        background: #000;
-        margin: 0;
-        padding: 0;
-        overflow: hidden;
-      }
-      #pwa-splash {
-        position: fixed;
-        inset: 0;
-        background: #000;
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        justify-content: center;
-        z-index: 999999;
-        transition: opacity 0.5s ease-out;
-      }
-      #pwa-splash.hidden {
-        opacity: 0;
-        pointer-events: none;
-      }
-      #pwa-splash img {
-        width: 80px;
-        height: 80px;
-        margin-bottom: 16px;
-        animation: splashPulse 1.5s ease-in-out infinite;
-      }
-      #pwa-splash .splash-text {
-        color: #00B4D8;
-        font-family: 'JetBrains Mono', monospace;
-        font-size: 14px;
-      }
-      #pwa-splash .splash-sub {
-        color: #666;
-        font-family: 'JetBrains Mono', monospace;
-        font-size: 11px;
-        margin-top: 8px;
-      }
-      @keyframes splashPulse {
-        0%, 100% { opacity: 0.6; transform: scale(1); }
-        50% { opacity: 1; transform: scale(1.05); }
-      }
-    </style>
+    <script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.8/dist/hls.min.js"></script>
   </head>
   <body>
-    <!-- PWA Splash Screen -->
-    <div id="pwa-splash">
-      <img src="/icons/arch-logo.png" alt="Arch Linux" />
-      <div class="splash-text">Arch Linux Web Simulator</div>
-      <div class="splash-sub">Loading...</div>
-    </div>
-
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
-
-    <!-- Service Worker Registration -->
-    <script>
-      (function() {
-        // Register service worker for PWA
-        if ('serviceWorker' in navigator) {
-          window.addEventListener('load', function() {
-            navigator.serviceWorker.register('/service-worker.js')
-              .then(function(reg) {
-                console.log('SW registered:', reg.scope);
-              })
-              .catch(function(err) {
-                console.log('SW registration failed:', err);
-              });
-          });
-        }
-
-        // Hide splash screen when app is ready
-        window.addEventListener('load', function() {
-          setTimeout(function() {
-            var splash = document.getElementById('pwa-splash');
-            if (splash) {
-              splash.classList.add('hidden');
-              setTimeout(function() {
-                splash.style.display = 'none';
-              }, 500);
-            }
-          }, 800);
-        });
-      })();
-    </script>
   </body>
 </html>
