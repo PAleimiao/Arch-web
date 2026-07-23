@@ -93,7 +93,7 @@ export default function Steam({ onOpenApp }: SteamProps) {
                       <Zap className="w-4 h-4" /> 开始游戏
                     </button>
                     <button
-                      onClick={() => window.open('https://www.crazygames.com/game/mad-town-andreas-mafia-storie', '_blank')}
+                      onClick={() => window.open('https://gta-vc.armdev.cn/', '_blank')}
                       className="px-4 py-2 bg-white/5 text-white/60 rounded-lg text-sm hover:bg-white/10 transition-colors flex items-center gap-2"
                     >
                       <ExternalLink className="w-4 h-4" /> 新标签页打开
