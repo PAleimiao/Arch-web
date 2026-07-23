@@ -66,6 +66,7 @@ import Gomoku from './Gomoku';
 import Sudoku from './Sudoku';
 import MemoryGame from './MemoryGame';
 import Solitaire from './Solitaire';
+import GTA from './GTA';
 
 interface AppRendererProps {
   appId: string;
@@ -162,6 +163,7 @@ const appComponents: Record<string, React.ComponentType<any>> = {
   sudoku: Sudoku,
   'memory-game': MemoryGame,
   solitaire: Solitaire,
+  gta: GTA,
   // Graphics
   gimp: ImageEditor,
   krita: ImageEditor,
