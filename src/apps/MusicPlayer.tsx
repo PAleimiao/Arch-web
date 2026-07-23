@@ -6,12 +6,44 @@ import {
   Music, Upload, Radio
 } from 'lucide-react';
 
-// Default Netease Cloud Music API endpoints
-const DEFAULT_API_BASE = 'https://api-mymusic.vercel.app';
-const DEFAULT_API_BACKUP = 'https://netease-cloud-music-api-wine.vercel.app';
+type Platform = 'netease' | 'qq' | 'kugou' | 'bilibili' | 'local';
+
+interface PlatformApiConfig {
+  primary: string;
+  backup: string;
+  docs: string;
+}
+
+const DEFAULT_APIS: Record<Platform, PlatformApiConfig> = {
+  netease: {
+    primary: 'https://api-mymusic.vercel.app',
+    backup: 'https://netease-cloud-music-api-wine.vercel.app',
+    docs: 'https://github.com/Binaryify/NeteaseCloudMusicApi',
+  },
+  qq: {
+    primary: '',
+    backup: '',
+    docs: 'https://github.com/jsososo/QQMusicApi',
+  },
+  kugou: {
+    primary: '',
+    backup: '',
+    docs: 'https://github.com/maicong/music',
+  },
+  bilibili: {
+    primary: 'https://api.bilibili.com',
+    backup: '',
+    docs: 'https://github.com/SocialSisterYi/bilibili-API-collect',
+  },
+  local: {
+    primary: '',
+    backup: '',
+    docs: '',
+  },
+};
 
 interface Song {
-  id: number;
+  id: number | string;
   title: string;
   artist: string;
   album: string;
@@ -19,14 +51,16 @@ interface Song {
   picUrl?: string;
   isLocal?: boolean;
   localUrl?: string;
+  bvid?: string;
 }
 
 interface SearchResult {
-  id: number;
+  id: number | string;
   name: string;
   artists: { name: string }[];
   album: { name: string; picUrl?: string };
   duration: number;
+  bvid?: string;
 }
 
 const FALLBACK_PLAYLIST: Song[] = [
@@ -126,36 +160,41 @@ const MELODIES: Record<number, { note: string; duration: number; type?: Oscillat
   ],
 };
 
-// Load saved API settings
-function loadApiSettings() {
+function loadApiSettings(): Record<Platform, { primary: string; backup: string }> {
   try {
-    const saved = localStorage.getItem('netease-api-settings');
-    if (saved) {
-      const parsed = JSON.parse(saved);
-      return {
-        primary: parsed.primary || DEFAULT_API_BASE,
-        backup: parsed.backup || DEFAULT_API_BACKUP,
-      };
-    }
+    const saved = localStorage.getItem('music-api-settings-v2');
+    if (saved) return JSON.parse(saved);
   } catch { /* ignore */ }
-  return { primary: DEFAULT_API_BASE, backup: DEFAULT_API_BACKUP };
+  return {
+    netease: { primary: DEFAULT_APIS.netease.primary, backup: DEFAULT_APIS.netease.backup },
+    qq: { primary: '', backup: '' },
+    kugou: { primary: '', backup: '' },
+    bilibili: { primary: 'https://api.bilibili.com', backup: '' },
+    local: { primary: '', backup: '' },
+  };
 }
 
-function saveApiSettings(primary: string, backup: string) {
-  localStorage.setItem('netease-api-settings', JSON.stringify({ primary, backup }));
+function saveApiSettings(settings: Record<Platform, { primary: string; backup: string }>) {
+  localStorage.setItem('music-api-settings-v2', JSON.stringify(settings));
 }
 
-export default function MusicPlayer() {
+interface MusicPlayerProps {
+  defaultPlatform?: Platform;
+}
+
+export default function MusicPlayer({ defaultPlatform }: MusicPlayerProps = {}) {
   const [apiSettings, setApiSettings] = useState(loadApiSettings);
   const [showSettings, setShowSettings] = useState(false);
-  const [editPrimary, setEditPrimary] = useState(apiSettings.primary);
-  const [editBackup, setEditBackup] = useState(apiSettings.backup);
+  const [editPrimary, setEditPrimary] = useState('');
+  const [editBackup, setEditBackup] = useState('');
   const [testStatus, setTestStatus] = useState<'idle' | 'testing' | 'success' | 'error'>('idle');
 
-  // mode: 'netease' | 'local'
-  const [mode, setMode] = useState<'netease' | 'local'>(() => {
-    try { return localStorage.getItem('music-player-mode') as 'netease' | 'local' || 'netease'; }
-    catch { return 'netease'; }
+  const [mode, setMode] = useState<Platform>(() => {
+    try {
+      const saved = localStorage.getItem('music-player-mode') as Platform;
+      if (saved && DEFAULT_APIS[saved]) return saved;
+    } catch { /* ignore */ }
+    return defaultPlatform || 'netease';
   });
 
   const [playlist, setPlaylist] = useState<Song[]>(FALLBACK_PLAYLIST);
@@ -163,288 +202,250 @@ export default function MusicPlayer() {
   const [playing, setPlaying] = useState(false);
   const [progress, setProgress] = useState(0);
   const [duration, setDuration] = useState(0);
-  const [liked, setLiked] = useState<Set<number>>(new Set<number>([0, 2]));
+  const [liked, setLiked] = useState<Set<number | string>>(new Set([0, 2]));
   const [volume, setVolume] = useState(0.8);
   const [muted, setMuted] = useState(false);
-
-  // Search states
-  const [searchQuery, setSearchQuery] = useState('');
-  const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
-  const [searching, setSearching] = useState(false);
+  const [showPlaylist, setShowPlaylist] = useState(true);
   const [showSearch, setShowSearch] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searching, setSearching] = useState(false);
+  const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
   const [apiError, setApiError] = useState<string | null>(null);
+  const [shuffle, setShuffle] = useState(false);
+  const [repeat, setRepeat] = useState(false);
 
-  // Audio refs
   const audioRef = useRef<HTMLAudioElement | null>(null);
-  const progressRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const volumeRef = useRef<HTMLDivElement | null>(null);
+
+  // Local synthesizer refs
   const audioCtxRef = useRef<AudioContext | null>(null);
-  const localOscRef = useRef<OscillatorNode | null>(null);
-  const localGainRef = useRef<GainNode | null>(null);
-  const localTimeoutRef = useRef<ReturnType<typeof setTimeout>[]>([]);
-  const localStartTimeRef = useRef<number>(0);
+  const oscillatorsRef = useRef<OscillatorNode[]>([]);
+  const gainNodesRef = useRef<GainNode[]>([]);
+  const localIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [localProgress, setLocalProgress] = useState(0);
+  const [localDuration, setLocalDuration] = useState(0);
 
-  const API_BASE = apiSettings.primary;
-  const API_BACKUP = apiSettings.backup;
-
-  // Initialize audio element
+  // Handle audio events (online mode)
   useEffect(() => {
-    audioRef.current = new Audio();
-    audioRef.current.volume = volume;
-
-    return () => {
-      if (audioRef.current) {
-        audioRef.current.pause();
-        audioRef.current.src = '';
-      }
-      if (progressRef.current) clearInterval(progressRef.current);
-      stopLocalAudio();
-    };
-  }, []);
-
-  // Handle audio events (netease mode)
-  useEffect(() => {
-    if (mode !== 'netease') return;
+    if (mode === 'local') return;
     const audio = audioRef.current;
     if (!audio) return;
 
     const handleEnded = () => { handleNext(); };
-    const handleLoadedMetadata = () => {
-      setDuration(audio.duration || playlist[current]?.duration || 0);
-    };
+    const handleLoaded = () => { setDuration(audio.duration || 0); };
     const handleError = () => {
-      console.error('Audio playback error');
-      setApiError('音频加载失败，请尝试切换歌曲');
-      setPlaying(false);
+      setApiError('音频加载失败，可能链接失效或跨域限制');
       setTimeout(() => setApiError(null), 3000);
     };
 
     audio.addEventListener('ended', handleEnded);
-    audio.addEventListener('loadedmetadata', handleLoadedMetadata);
+    audio.addEventListener('loadedmetadata', handleLoaded);
     audio.addEventListener('error', handleError);
-
     return () => {
       audio.removeEventListener('ended', handleEnded);
-      audio.removeEventListener('loadedmetadata', handleLoadedMetadata);
+      audio.removeEventListener('loadedmetadata', handleLoaded);
       audio.removeEventListener('error', handleError);
     };
   }, [current, playlist, mode]);
 
-  // Update progress (netease mode)
+  // Update progress (online mode)
   useEffect(() => {
-    if (mode !== 'netease') return;
-    if (playing) {
-      progressRef.current = setInterval(() => {
-        if (audioRef.current) {
-          setProgress(audioRef.current.currentTime);
-          setDuration(audioRef.current.duration || playlist[current]?.duration || 0);
-        }
-      }, 500);
-    } else {
-      if (progressRef.current) clearInterval(progressRef.current);
-    }
-    return () => { if (progressRef.current) clearInterval(progressRef.current); };
+    if (mode === 'local') return;
+    if (!playing || !audioRef.current) return;
+    const interval = setInterval(() => {
+      if (audioRef.current) {
+        setProgress(audioRef.current.currentTime);
+        setDuration(audioRef.current.duration || 0);
+      }
+    }, 500);
+    return () => clearInterval(interval);
   }, [playing, current, playlist, mode]);
 
   // Local mode progress updater
   useEffect(() => {
     if (mode !== 'local') return;
-    if (playing) {
-      progressRef.current = setInterval(() => {
-        const elapsed = (Date.now() - localStartTimeRef.current) / 1000;
-        const dur = playlist[current]?.duration || 0;
-        setProgress(Math.min(elapsed, dur));
-        setDuration(dur);
-        if (elapsed >= dur) {
-          handleNext();
+    if (!playing) return;
+    localIntervalRef.current = setInterval(() => {
+      setLocalProgress(p => {
+        if (p >= localDuration) {
+          setPlaying(false);
+          return 0;
         }
-      }, 500);
-    } else {
-      if (progressRef.current) clearInterval(progressRef.current);
-    }
-    return () => { if (progressRef.current) clearInterval(progressRef.current); };
-  }, [playing, current, playlist, mode]);
+        return p + 0.5;
+      });
+    }, 500);
+    return () => {
+      if (localIntervalRef.current) clearInterval(localIntervalRef.current);
+    };
+  }, [playing, localDuration, mode]);
 
   // Volume control
   useEffect(() => {
     if (audioRef.current) {
       audioRef.current.volume = muted ? 0 : volume;
     }
-    if (localGainRef.current && audioCtxRef.current) {
-      localGainRef.current.gain.setValueAtTime(muted ? 0 : volume * 0.3, audioCtxRef.current.currentTime);
-    }
-  }, [volume, muted]);
+  }, [volume, muted, current, mode]);
 
   // Save mode
   useEffect(() => {
     localStorage.setItem('music-player-mode', mode);
   }, [mode]);
 
-  // Switch mode -> reset playlist
-  const handleSwitchMode = useCallback((newMode: 'netease' | 'local') => {
-    setPlaying(false);
-    setProgress(0);
+  // Update edit inputs when mode or settings change
+  useEffect(() => {
+    setEditPrimary(apiSettings[mode].primary);
+    setEditBackup(apiSettings[mode].backup);
+    setTestStatus('idle');
+  }, [mode, apiSettings, showSettings]);
+
+  const handleSwitchMode = useCallback((newMode: Platform) => {
+    setMode(newMode);
+    setShowSearch(false);
+    setSearchResults([]);
     setApiError(null);
-    stopLocalAudio();
     if (audioRef.current) {
       audioRef.current.pause();
       audioRef.current.src = '';
     }
-    setMode(newMode);
+    stopLocalAudio();
+    setPlaying(false);
+    setProgress(0);
+    setLocalProgress(0);
     if (newMode === 'local') {
       setPlaylist(LOCAL_PLAYLIST);
+      setCurrent(0);
+      setDuration(0);
+      setLocalDuration(0);
     } else {
       setPlaylist(FALLBACK_PLAYLIST);
-    }
-    setCurrent(0);
-  }, []);
-
-  // Stop local audio
-  const stopLocalAudio = useCallback(() => {
-    localTimeoutRef.current.forEach(t => clearTimeout(t));
-    localTimeoutRef.current = [];
-    if (localOscRef.current) {
-      try { localOscRef.current.stop(); } catch { /* ignore */ }
-      localOscRef.current = null;
-    }
-    if (localGainRef.current) {
-      try { localGainRef.current.disconnect(); } catch { /* ignore */ }
-      localGainRef.current = null;
+      setCurrent(0);
+      setDuration(FALLBACK_PLAYLIST[0]?.duration || 0);
     }
   }, []);
 
-  // Play local song using Web Audio API
+  // Local synthesizer functions
   const playLocalSong = useCallback((song: Song, index: number) => {
-    stopLocalAudio();
     setCurrent(index);
-    setProgress(0);
-    localStartTimeRef.current = Date.now();
+    setPlaying(true);
+    setLocalProgress(0);
+    setLocalDuration(song.duration);
 
-    const songId = song.id;
-
-    // 正弦扫频
-    if (songId === -4) {
-      const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
-      audioCtxRef.current = ctx;
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      osc.connect(gain);
-      gain.connect(ctx.destination);
-      osc.type = 'sine';
-      osc.frequency.setValueAtTime(200, ctx.currentTime);
-      osc.frequency.exponentialRampToValueAtTime(800, ctx.currentTime + 10);
-      gain.gain.setValueAtTime(volume * 0.3, ctx.currentTime);
-      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 10);
-      osc.start();
-      osc.stop(ctx.currentTime + 10);
-      localOscRef.current = osc;
-      localGainRef.current = gain;
-      setPlaying(true);
-      const t = setTimeout(() => { setPlaying(false); setProgress(10); }, 10000);
-      localTimeoutRef.current.push(t);
+    if (song.isLocal && song.localUrl) {
+      if (!audioRef.current) audioRef.current = new Audio();
+      audioRef.current.src = song.localUrl;
+      audioRef.current.currentTime = 0;
+      audioRef.current.play().catch(() => setPlaying(false));
       return;
     }
 
-    // 粉红噪音
-    if (songId === -5) {
-      const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
-      audioCtxRef.current = ctx;
-      const bufferSize = 2 * ctx.sampleRate;
-      const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
-      const data = buffer.getChannelData(0);
-      let lastOut = 0;
-      for (let i = 0; i < bufferSize; i++) {
-        const white = Math.random() * 2 - 1;
-        data[i] = (lastOut + 0.02 * white) / 1.02;
-        lastOut = data[i];
-        data[i] *= 3.5;
-      }
-      const noise = ctx.createBufferSource();
-      noise.buffer = buffer;
-      const gain = ctx.createGain();
-      noise.connect(gain);
-      gain.connect(ctx.destination);
-      gain.gain.setValueAtTime(volume * 0.2, ctx.currentTime);
-      noise.loop = true;
-      noise.start();
-      localOscRef.current = noise as any;
-      localGainRef.current = gain;
-      setPlaying(true);
-      return;
-    }
+    const melody = MELODIES[song.id as number];
+    if (!melody) return;
 
-    // 旋律播放
-    const melody = MELODIES[songId];
-    if (!melody || melody.length === 0) return;
-
-    const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
+    stopLocalAudio();
+    const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+    if (!AudioContextClass) return;
+    const ctx = new AudioContextClass();
     audioCtxRef.current = ctx;
-    let time = ctx.currentTime + 0.1;
 
-    melody.forEach(({ note, duration, type }) => {
-      const freq = NOTE_FREQ[note] || 0;
-      if (freq === 0) {
+    let time = 0;
+    melody.forEach(({ note, duration, type = 'triangle' }) => {
+      if (note === 'rest') {
         time += duration;
         return;
       }
-      const t = setTimeout(() => {
-        const osc = ctx.createOscillator();
-        const gain = ctx.createGain();
-        osc.connect(gain);
-        gain.connect(ctx.destination);
-        osc.type = type || 'triangle';
-        osc.frequency.setValueAtTime(freq, ctx.currentTime);
-        gain.gain.setValueAtTime(0, ctx.currentTime);
-        gain.gain.linearRampToValueAtTime(volume * 0.4, ctx.currentTime + 0.05);
-        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + duration - 0.05);
-        osc.start(ctx.currentTime);
-        osc.stop(ctx.currentTime + duration);
-      }, (time - ctx.currentTime) * 1000);
-      localTimeoutRef.current.push(t);
+      const freq = NOTE_FREQ[note];
+      if (!freq) return;
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = type;
+      osc.frequency.value = freq;
+      gain.gain.setValueAtTime(0.15, ctx.currentTime + time);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + time + duration);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start(ctx.currentTime + time);
+      osc.stop(ctx.currentTime + time + duration);
+      oscillatorsRef.current.push(osc);
+      gainNodesRef.current.push(gain);
       time += duration;
     });
-
-    setPlaying(true);
-    const endT = setTimeout(() => { setPlaying(false); }, (time - ctx.currentTime) * 1000);
-    localTimeoutRef.current.push(endT);
-  }, [volume, stopLocalAudio]);
-
-  // Test API connection
-  const testApi = useCallback(async () => {
-    setTestStatus('testing');
-    try {
-      const res = await fetch(`${editPrimary}/search?keywords=test&limit=1`, {
-        signal: AbortSignal.timeout(5000)
-      });
-      if (res.ok) {
-        setTestStatus('success');
-      } else {
-        setTestStatus('error');
-      }
-    } catch {
-      setTestStatus('error');
-    }
-    setTimeout(() => setTestStatus('idle'), 3000);
-  }, [editPrimary]);
-
-  // Save API settings
-  const handleSaveSettings = useCallback(() => {
-    const primary = editPrimary.trim() || DEFAULT_API_BASE;
-    const backup = editBackup.trim() || DEFAULT_API_BACKUP;
-    setApiSettings({ primary, backup });
-    saveApiSettings(primary, backup);
-    setShowSettings(false);
-    setApiError(null);
-  }, [editPrimary, editBackup]);
-
-  // Reset to defaults
-  const handleResetSettings = useCallback(() => {
-    setEditPrimary(DEFAULT_API_BASE);
-    setEditBackup(DEFAULT_API_BACKUP);
-    setApiSettings({ primary: DEFAULT_API_BASE, backup: DEFAULT_API_BACKUP });
-    saveApiSettings(DEFAULT_API_BASE, DEFAULT_API_BACKUP);
   }, []);
 
-  // Fetch song URL and play (netease mode)
+  const stopLocalAudio = useCallback(() => {
+    oscillatorsRef.current.forEach(o => { try { o.stop(); } catch {} });
+    gainNodesRef.current.forEach(g => { try { g.disconnect(); } catch {} });
+    oscillatorsRef.current = [];
+    gainNodesRef.current = [];
+    if (audioCtxRef.current) { try { audioCtxRef.current.close(); } catch {} audioCtxRef.current = null; }
+    if (localIntervalRef.current) { clearInterval(localIntervalRef.current); localIntervalRef.current = null; }
+  }, []);
+
+  const playNote = useCallback((freq: number, duration: number, type: OscillatorType = 'sine', delay = 0) => {
+    const ctx = audioCtxRef.current;
+    if (!ctx) return;
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = type;
+    osc.frequency.value = freq;
+    gain.gain.setValueAtTime(0.2, ctx.currentTime + delay);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + delay + duration);
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start(ctx.currentTime + delay);
+    osc.stop(ctx.currentTime + delay + duration);
+    oscillatorsRef.current.push(osc);
+    gainNodesRef.current.push(gain);
+  }, []);
+
+  const playMelody = useCallback((notes: { note: string; duration: number; type?: OscillatorType }[], baseDelay = 0) => {
+    let time = 0;
+    notes.forEach(({ note, duration, type = 'triangle' }) => {
+      if (note === 'rest') { time += duration; return; }
+      const freq = NOTE_FREQ[note];
+      if (freq) playNote(freq, duration, type, baseDelay + time);
+      time += duration;
+    });
+  }, [playNote]);
+
+  const playNoise = useCallback((duration: number, delay = 0) => {
+    const ctx = audioCtxRef.current;
+    if (!ctx) return;
+    const bufferSize = ctx.sampleRate * duration;
+    const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
+    const data = buffer.getChannelData(0);
+    for (let i = 0; i < bufferSize; i++) {
+      data[i] = (Math.random() * 2 - 1) * 0.1;
+    }
+    const source = ctx.createBufferSource();
+    source.buffer = buffer;
+    const gain = ctx.createGain();
+    gain.gain.setValueAtTime(0.3, ctx.currentTime + delay);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + delay + duration);
+    source.connect(gain);
+    gain.connect(ctx.destination);
+    source.start(ctx.currentTime + delay);
+    source.stop(ctx.currentTime + delay + duration);
+  }, []);
+
+  const playDrum = useCallback((freq: number, duration: number, delay = 0) => {
+    const ctx = audioCtxRef.current;
+    if (!ctx) return;
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = 'square';
+    osc.frequency.value = freq;
+    gain.gain.setValueAtTime(0.3, ctx.currentTime + delay);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + delay + duration);
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start(ctx.currentTime + delay);
+    osc.stop(ctx.currentTime + delay + duration);
+  }, []);
+
+  const play8Bit = useCallback((freq: number, duration: number, delay = 0) => {
+    playNote(freq, duration, 'square', delay);
+  }, [playNote]);
+
   const playSong = useCallback(async (song: Song, index: number) => {
     if (mode === 'local') {
       playLocalSong(song, index);
@@ -455,33 +456,60 @@ export default function MusicPlayer() {
     setCurrent(index);
     setProgress(0);
 
+    const apiBase = apiSettings[mode].primary;
+    const apiBackup = apiSettings[mode].backup;
+
+    if (!apiBase && !apiBackup) {
+      const names: Record<Platform, string> = {
+        netease: '网易云', qq: 'QQ音乐', kugou: '酷狗', bilibili: 'B站', local: '本地',
+      };
+      setApiError(`请先配置 ${names[mode]} API 地址`);
+      setTimeout(() => setApiError(null), 4000);
+      setPlaying(true);
+      setDuration(song.duration);
+      return;
+    }
+
     try {
-      let res = await fetch(`${API_BASE}/song/url?id=${song.id}&br=320000`, { signal: AbortSignal.timeout(8000) }).catch(() => null);
+      let url: string | null = null;
 
-      if (!res || !res.ok) {
-        res = await fetch(`${API_BACKUP}/song/url?id=${song.id}&br=320000`, { signal: AbortSignal.timeout(8000) }).catch(() => null);
-      }
-
-      if (!res || !res.ok) {
-        setApiError(`无法获取歌曲播放链接\n当前 API: ${API_BASE}`);
+      if (mode === 'netease') {
+        let res = await fetch(`${apiBase}/song/url?id=${song.id}&br=320000`, { signal: AbortSignal.timeout(8000) }).catch(() => null);
+        if ((!res || !res.ok) && apiBackup) {
+          res = await fetch(`${apiBackup}/song/url?id=${song.id}&br=320000`, { signal: AbortSignal.timeout(8000) }).catch(() => null);
+        }
+        if (res && res.ok) {
+          const data = await res.json();
+          url = data.data?.[0]?.url || null;
+        }
+      } else if (mode === 'qq') {
+        let res = await fetch(`${apiBase}/song/url?id=${song.id}`, { signal: AbortSignal.timeout(8000) }).catch(() => null);
+        if ((!res || !res.ok) && apiBackup) {
+          res = await fetch(`${apiBackup}/song/url?id=${song.id}`, { signal: AbortSignal.timeout(8000) }).catch(() => null);
+        }
+        if (res && res.ok) {
+          const data = await res.json();
+          url = data.data || null;
+        }
+      } else if (mode === 'kugou') {
+        setApiError('酷狗 API 需自行部署，格式参考项目文档');
         setTimeout(() => setApiError(null), 4000);
-        setPlaying(true);
+      } else if (mode === 'bilibili') {
+        if (song.bvid) {
+          setApiError('B站模式暂支持视频搜索，播放需配合解析服务');
+          setTimeout(() => setApiError(null), 4000);
+        }
+      }
+
+      if (!url && mode !== 'kugou' && mode !== 'bilibili') {
+        setApiError('无法获取歌曲播放链接，请检查API配置');
+        setTimeout(() => setApiError(null), 4000);
         setDuration(song.duration);
+        setPlaying(true);
         return;
       }
 
-      const data = await res.json();
-      const url = data.data?.[0]?.url;
-
-      if (!url) {
-        setApiError('该歌曲暂无播放资源 (版权限制)');
-        setTimeout(() => setApiError(null), 3000);
-        setDuration(song.duration);
-        setPlaying(true);
-        return;
-      }
-
-      if (audioRef.current) {
+      if (url && audioRef.current) {
         audioRef.current.src = url;
         audioRef.current.currentTime = 0;
         try {
@@ -496,7 +524,7 @@ export default function MusicPlayer() {
       setTimeout(() => setApiError(null), 4000);
       setDuration(song.duration);
     }
-  }, [API_BASE, API_BACKUP, mode, playLocalSong]);
+  }, [apiSettings, mode, playLocalSong]);
 
   const togglePlay = useCallback(() => {
     if (mode === 'local') {
@@ -532,33 +560,82 @@ export default function MusicPlayer() {
     playSong(playlist[prev], prev);
   }, [current, playlist, playSong]);
 
-  // Search songs (netease only)
+  // Search songs
   const handleSearch = useCallback(async () => {
-    if (mode !== 'netease') return;
+    if (mode === 'local') return;
     if (!searchQuery.trim()) return;
     setSearching(true);
     setApiError(null);
 
+    const apiBase = apiSettings[mode].primary;
+    const apiBackup = apiSettings[mode].backup;
+
+    if (!apiBase && !apiBackup) {
+      const names: Record<Platform, string> = {
+        netease: '网易云', qq: 'QQ音乐', kugou: '酷狗', bilibili: 'B站', local: '本地',
+      };
+      setApiError(`请先配置 ${names[mode]} API 地址`);
+      setSearchResults([]);
+      setSearching(false);
+      return;
+    }
+
     try {
-      let res = await fetch(`${API_BASE}/search?keywords=${encodeURIComponent(searchQuery)}&limit=20&type=1`, {
-        signal: AbortSignal.timeout(8000)
-      }).catch(() => null);
+      let songs: SearchResult[] = [];
 
-      if (!res || !res.ok) {
-        res = await fetch(`${API_BACKUP}/search?keywords=${encodeURIComponent(searchQuery)}&limit=20&type=1`, {
-          signal: AbortSignal.timeout(8000)
-        }).catch(() => null);
+      if (mode === 'netease') {
+        let res = await fetch(`${apiBase}/search?keywords=${encodeURIComponent(searchQuery)}&limit=20&type=1`, { signal: AbortSignal.timeout(8000) }).catch(() => null);
+        if ((!res || !res.ok) && apiBackup) {
+          res = await fetch(`${apiBackup}/search?keywords=${encodeURIComponent(searchQuery)}&limit=20&type=1`, { signal: AbortSignal.timeout(8000) }).catch(() => null);
+        }
+        if (res && res.ok) {
+          const data = await res.json();
+          songs = (data.result?.songs || []).map((s: any) => ({
+            id: s.id,
+            name: s.name,
+            artists: s.ar?.map((a: any) => ({ name: a.name })) || s.artists?.map((a: any) => ({ name: a.name })) || [],
+            album: { name: s.al?.name || s.album?.name || '', picUrl: s.al?.picUrl || s.album?.picUrl },
+            duration: Math.floor((s.dt || s.duration || 0) / 1000),
+          }));
+        }
+      } else if (mode === 'qq') {
+        let res = await fetch(`${apiBase}/search?key=${encodeURIComponent(searchQuery)}`, { signal: AbortSignal.timeout(8000) }).catch(() => null);
+        if ((!res || !res.ok) && apiBackup) {
+          res = await fetch(`${apiBackup}/search?key=${encodeURIComponent(searchQuery)}`, { signal: AbortSignal.timeout(8000) }).catch(() => null);
+        }
+        if (res && res.ok) {
+          const data = await res.json();
+          songs = (data.data?.list || []).map((s: any) => ({
+            id: s.songmid || s.mid,
+            name: s.songname || s.name,
+            artists: (s.singer || []).map((a: any) => ({ name: a.name })),
+            album: { name: s.albumname || s.album?.name || '', picUrl: undefined },
+            duration: s.interval || 0,
+          }));
+        }
+      } else if (mode === 'kugou') {
+        setApiError('酷狗搜索 API 需自行部署');
+      } else if (mode === 'bilibili') {
+        let res = await fetch(`https://api.bilibili.com/x/web-interface/search/type?keyword=${encodeURIComponent(searchQuery)}&search_type=video`, { signal: AbortSignal.timeout(8000) }).catch(() => null);
+        if (res && res.ok) {
+          const data = await res.json();
+          songs = (data.data?.result || []).map((s: any) => ({
+            id: s.bvid,
+            name: s.title?.replace(/<[^>]+>/g, '') || '未知标题',
+            artists: [{ name: s.author || 'UP主' }],
+            album: { name: 'B站视频', picUrl: s.pic },
+            duration: s.duration ? (() => {
+              const parts = s.duration.split(':');
+              return parseInt(parts[0]) * 60 + parseInt(parts[1]);
+            })() : 0,
+            bvid: s.bvid,
+          }));
+        }
       }
 
-      if (!res || !res.ok) {
-        setApiError(`搜索服务暂时不可用\n当前 API: ${API_BASE}`);
-        setSearchResults([]);
-        setSearching(false);
-        return;
+      if (songs.length === 0 && !apiError) {
+        setApiError('搜索无结果，请检查API配置或关键词');
       }
-
-      const data = await res.json();
-      const songs = data.result?.songs || [];
       setSearchResults(songs);
     } catch {
       setApiError('搜索失败，请检查网络连接或更换 API');
@@ -566,30 +643,27 @@ export default function MusicPlayer() {
     } finally {
       setSearching(false);
     }
-  }, [searchQuery, API_BASE, API_BACKUP, mode]);
+  }, [searchQuery, apiSettings, mode]);
 
-  // Add search result to playlist
   const addToPlaylist = useCallback((result: SearchResult) => {
     const newSong: Song = {
       id: result.id,
       title: result.name,
       artist: result.artists.map(a => a.name).join(' / '),
       album: result.album.name,
-      duration: Math.floor(result.duration / 1000),
+      duration: result.duration,
       picUrl: result.album.picUrl,
+      bvid: result.bvid,
     };
-
     setPlaylist(prev => {
       if (prev.some(s => s.id === newSong.id)) return prev;
       return [...prev, newSong];
     });
   }, []);
 
-  // Handle file upload (local mode)
   const handleFileUpload = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files) return;
-
     Array.from(files).forEach(file => {
       if (!file.type.startsWith('audio/')) return;
       const url = URL.createObjectURL(file);
@@ -602,7 +676,6 @@ export default function MusicPlayer() {
         isLocal: true,
         localUrl: url,
       };
-      // 获取音频时长
       const tempAudio = new Audio(url);
       tempAudio.addEventListener('loadedmetadata', () => {
         newSong.duration = Math.floor(tempAudio.duration);
@@ -612,52 +685,60 @@ export default function MusicPlayer() {
         setPlaylist(prev => [...prev, newSong]);
       });
     });
-
     e.target.value = '';
   }, []);
 
-  // Play uploaded local file
-  const playUploadedFile = useCallback((song: Song, index: number) => {
-    if (!song.localUrl) return;
-    stopLocalAudio();
-    if (audioRef.current) {
-      audioRef.current.src = song.localUrl;
-      audioRef.current.currentTime = 0;
-      audioRef.current.play().then(() => {
-        setPlaying(true);
-        setCurrent(index);
-        setProgress(0);
-      }).catch(() => setPlaying(false));
+  const testApi = useCallback(async () => {
+    if (mode === 'local') return;
+    setTestStatus('testing');
+    const base = editPrimary || apiSettings[mode].primary;
+    if (!base) { setTestStatus('error'); return; }
+    try {
+      let endpoint = '';
+      if (mode === 'netease') endpoint = base + '/search?keywords=test&limit=1';
+      else if (mode === 'qq') endpoint = base + '/search?key=test';
+      else if (mode === 'kugou') endpoint = base + '/search?keyword=test';
+      else if (mode === 'bilibili') endpoint = 'https://api.bilibili.com/x/web-interface/search/type?keyword=test&search_type=video';
+      const res = await fetch(endpoint, { signal: AbortSignal.timeout(8000) });
+      setTestStatus(res.ok ? 'success' : 'error');
+    } catch {
+      setTestStatus('error');
     }
-  }, [stopLocalAudio]);
+  }, [editPrimary, apiSettings, mode]);
 
-  // Override playSong for uploaded files
-  const handlePlaySong = useCallback((song: Song, index: number) => {
-    if (song.isLocal && song.localUrl) {
-      playUploadedFile(song, index);
-      return;
-    }
-    playSong(song, index);
-  }, [playSong, playUploadedFile]);
+  const handleSaveSettings = useCallback(() => {
+    const updated = { ...apiSettings, [mode]: { primary: editPrimary, backup: editBackup } };
+    setApiSettings(updated);
+    saveApiSettings(updated);
+    setShowSettings(false);
+    setTestStatus('idle');
+  }, [editPrimary, editBackup, apiSettings, mode]);
 
-  // Seek (netease only)
-  const handleSeek = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    const val = Number(e.target.value);
-    if (mode === 'netease' && audioRef.current) {
-      audioRef.current.currentTime = val;
-      setProgress(val);
-    }
+  const handleResetSettings = useCallback(() => {
+    const defaults = {
+      netease: { primary: DEFAULT_APIS.netease.primary, backup: DEFAULT_APIS.netease.backup },
+      qq: { primary: '', backup: '' },
+      kugou: { primary: '', backup: '' },
+      bilibili: { primary: 'https://api.bilibili.com', backup: '' },
+      local: { primary: '', backup: '' },
+    };
+    setApiSettings(defaults);
+    saveApiSettings(defaults);
+    setEditPrimary(defaults[mode].primary);
+    setEditBackup(defaults[mode].backup);
+    setTestStatus('idle');
   }, [mode]);
 
-  // Format time
-  const fmt = (s: number) => {
+  const formatTime = (s: number) => {
+    if (!isFinite(s) || s < 0) return '0:00';
     const m = Math.floor(s / 60);
     const sec = Math.floor(s % 60);
     return `${m}:${sec.toString().padStart(2, '0')}`;
   };
 
-  // Current song
-  const song = playlist[current] || playlist[0];
+  const platformNames: Record<Platform, string> = {
+    netease: '网易云', qq: 'QQ音乐', kugou: '酷狗', bilibili: 'B站', local: '本地',
+  };
 
   return (
     <div className="flex flex-col h-full bg-[#0a0a0a] text-white select-none overflow-hidden">
@@ -666,28 +747,27 @@ export default function MusicPlayer() {
         <div className="flex items-center gap-2">
           <Disc3 className="w-5 h-5 text-emerald-400" />
           <span className="font-medium text-sm">音乐播放器</span>
-          {mode === 'local' && (
-            <span className="text-[10px] bg-emerald-500/20 text-emerald-400 px-1.5 py-0.5 rounded">本地模式</span>
+          {mode !== 'netease' && (
+            <span className="text-[10px] bg-emerald-500/20 text-emerald-400 px-1.5 py-0.5 rounded">
+              {platformNames[mode]}模式
+            </span>
           )}
         </div>
         <div className="flex items-center gap-2">
           {/* Mode switch */}
           <div className="flex items-center bg-white/5 rounded-lg p-0.5">
-            <button
-              onClick={() => handleSwitchMode('netease')}
-              className={`px-2 py-1 text-xs rounded-md transition-colors ${mode === 'netease' ? 'bg-emerald-500/20 text-emerald-400' : 'text-white/50 hover:text-white'}`}
-            >
-              网易云
-            </button>
-            <button
-              onClick={() => handleSwitchMode('local')}
-              className={`px-2 py-1 text-xs rounded-md transition-colors ${mode === 'local' ? 'bg-emerald-500/20 text-emerald-400' : 'text-white/50 hover:text-white'}`}
-            >
-              本地
-            </button>
+            {(['netease', 'qq', 'kugou', 'bilibili', 'local'] as Platform[]).map(p => (
+              <button
+                key={p}
+                onClick={() => handleSwitchMode(p)}
+                className={`px-2 py-1 text-xs rounded-md transition-colors ${mode === p ? 'bg-emerald-500/20 text-emerald-400' : 'text-white/50 hover:text-white'}`}
+              >
+                {platformNames[p]}
+              </button>
+            ))}
           </div>
 
-          {mode === 'netease' && (
+          {mode !== 'local' && (
             <button
               onClick={() => setShowSearch(!showSearch)}
               className={`p-1.5 rounded-lg transition-colors ${showSearch ? 'bg-emerald-500/20 text-emerald-400' : 'hover:bg-white/5 text-white/60'}`}
@@ -708,7 +788,9 @@ export default function MusicPlayer() {
       {showSettings && (
         <div className="px-4 py-3 border-b border-white/5 bg-white/[0.02]">
           <div className="flex items-center justify-between mb-2">
-            <span className="text-xs font-medium text-white/60">API 设置</span>
+            <span className="text-xs font-medium text-white/60">
+              {platformNames[mode]} API 设置
+            </span>
             <button onClick={handleResetSettings} className="text-[10px] text-white/40 hover:text-white/70 flex items-center gap-1">
               <RotateCcw className="w-3 h-3" /> 恢复默认
             </button>
@@ -721,7 +803,7 @@ export default function MusicPlayer() {
                   value={editPrimary}
                   onChange={e => setEditPrimary(e.target.value)}
                   className="flex-1 bg-white/5 border border-white/10 rounded px-2 py-1 text-xs text-white/80 focus:outline-none focus:border-emerald-500/50"
-                  placeholder={DEFAULT_API_BASE}
+                  placeholder={DEFAULT_APIS[mode].primary || '请输入API地址'}
                 />
                 <button
                   onClick={testApi}
@@ -739,7 +821,7 @@ export default function MusicPlayer() {
                 value={editBackup}
                 onChange={e => setEditBackup(e.target.value)}
                 className="w-full bg-white/5 border border-white/10 rounded px-2 py-1 text-xs text-white/80 focus:outline-none focus:border-emerald-500/50"
-                placeholder={DEFAULT_API_BACKUP}
+                placeholder={DEFAULT_APIS[mode].backup || '可选'}
               />
             </div>
             <div className="flex gap-2 pt-1">
@@ -756,49 +838,53 @@ export default function MusicPlayer() {
                 取消
               </button>
             </div>
-            <p className="text-[10px] text-white/30">
-              提示：公开 API 经常失效，建议自行部署。有服务器用 Docker 跑一个最稳。
-              <a href="https://github.com/Binaryify/NeteaseCloudMusicApi" target="_blank" rel="noopener" className="text-emerald-400/60 hover:text-emerald-400 inline-flex items-center gap-0.5">
-                查看部署文档 <ExternalLink className="w-2.5 h-2.5" />
-              </a>
-            </p>
+            {mode !== 'local' && DEFAULT_APIS[mode].docs && (
+              <p className="text-[10px] text-white/30">
+                提示：公开 API 经常失效，建议自行部署。
+                <a href={DEFAULT_APIS[mode].docs} target="_blank" rel="noopener" className="text-emerald-400/60 hover:text-emerald-400 inline-flex items-center gap-0.5">
+                  查看部署文档 <ExternalLink className="w-2.5 h-2.5" />
+                </a>
+              </p>
+            )}
           </div>
         </div>
       )}
 
-      {/* Search Panel (netease only) */}
-      {showSearch && mode === 'netease' && (
+      {/* Search Panel */}
+      {showSearch && mode !== 'local' && (
         <div className="px-4 py-3 border-b border-white/5 bg-white/[0.02]">
           <div className="flex gap-2 mb-2">
             <input
               value={searchQuery}
               onChange={e => setSearchQuery(e.target.value)}
               onKeyDown={e => e.key === 'Enter' && handleSearch()}
-              placeholder="搜索歌曲、歌手..."
-              className="flex-1 bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white/80 placeholder:text-white/30 focus:outline-none focus:border-emerald-500/50"
+              placeholder={`在${platformNames[mode]}搜索...`}
+              className="flex-1 bg-white/5 border border-white/10 rounded px-3 py-1.5 text-xs text-white/80 focus:outline-none focus:border-emerald-500/50"
             />
             <button
               onClick={handleSearch}
               disabled={searching}
-              className="px-3 py-2 bg-emerald-500/20 text-emerald-400 rounded-lg text-sm hover:bg-emerald-500/30 transition-colors disabled:opacity-50"
+              className="px-3 py-1.5 bg-emerald-500/20 text-emerald-400 rounded text-xs hover:bg-emerald-500/30 transition-colors disabled:opacity-50"
             >
-              {searching ? <Loader2 className="w-4 h-4 animate-spin" /> : '搜索'}
+              {searching ? <Loader2 className="w-3 h-3 animate-spin" /> : '搜索'}
             </button>
           </div>
           {searchResults.length > 0 && (
             <div className="max-h-48 overflow-y-auto space-y-1">
-              {searchResults.map(r => (
-                <div key={r.id} className="flex items-center gap-2 p-2 rounded-lg hover:bg-white/5 cursor-pointer group" onClick={() => addToPlaylist(r)}>
-                  <div className="w-8 h-8 rounded bg-white/5 flex items-center justify-center">
+              {searchResults.map((result, idx) => (
+                <div
+                  key={`${result.id}-${idx}`}
+                  onClick={() => addToPlaylist(result)}
+                  className="flex items-center gap-2 p-2 rounded-lg hover:bg-white/5 cursor-pointer transition-colors"
+                >
+                  <div className="w-8 h-8 rounded bg-white/5 flex items-center justify-center shrink-0">
                     <Music className="w-4 h-4 text-white/30" />
                   </div>
                   <div className="flex-1 min-w-0">
-                    <div className="text-xs text-white/80 truncate">{r.name}</div>
-                    <div className="text-[10px] text-white/40 truncate">{r.artists.map(a => a.name).join(' / ')} - {r.album.name}</div>
+                    <div className="text-xs text-white/80 truncate">{result.name}</div>
+                    <div className="text-[10px] text-white/40 truncate">{result.artists.map(a => a.name).join(' / ')} · {result.album.name}</div>
                   </div>
-                  <button className="opacity-0 group-hover:opacity-100 p-1 text-emerald-400 hover:bg-emerald-500/10 rounded transition-all">
-                    <ListMusic className="w-3.5 h-3.5" />
-                  </button>
+                  <div className="text-[10px] text-white/30 shrink-0">{formatTime(result.duration)}</div>
                 </div>
               ))}
             </div>
@@ -806,136 +892,166 @@ export default function MusicPlayer() {
         </div>
       )}
 
-      {/* Local mode upload */}
-      {mode === 'local' && (
-        <div className="px-4 py-2 border-b border-white/5">
-          <label className="flex items-center gap-2 px-3 py-2 bg-white/5 border border-white/10 border-dashed rounded-lg cursor-pointer hover:bg-white/[0.07] transition-colors">
-            <Upload className="w-4 h-4 text-white/40" />
-            <span className="text-xs text-white/50">点击上传本地音频文件（支持多选）</span>
-            <input type="file" accept="audio/*" multiple className="hidden" onChange={handleFileUpload} />
-          </label>
-          <p className="text-[10px] text-white/30 mt-1.5">
-            内置 6 首合成器音效，不依赖任何外部 API。也可以上传自己的音乐文件。
-          </p>
-        </div>
-      )}
-
-      {/* Playlist */}
-      <div className="flex-1 overflow-y-auto px-2 py-2">
-        <div className="space-y-0.5">
-          {playlist.map((s, i) => (
-            <div
-              key={`${s.id}-${i}`}
-              onClick={() => handlePlaySong(s, i)}
-              className={`flex items-center gap-3 px-3 py-2.5 rounded-lg cursor-pointer transition-colors ${
-                i === current ? 'bg-emerald-500/10' : 'hover:bg-white/5'
-              }`}
-            >
-              <div className="w-8 text-center text-xs text-white/30 font-mono">{i + 1}</div>
-              <div className="flex-1 min-w-0">
-                <div className={`text-sm truncate ${i === current ? 'text-emerald-400' : 'text-white/80'}`}>
-                  {s.title}
-                  {s.isLocal && <span className="ml-1 text-[10px] text-emerald-400/60">[本地]</span>}
-                </div>
-                <div className="text-xs text-white/40 truncate">{s.artist} - {s.album}</div>
+      {/* Main Content */}
+      <div className="flex-1 flex overflow-hidden">
+        {/* Playlist */}
+        <div className={`${showPlaylist ? 'w-64' : 'w-0'} border-r border-white/5 flex flex-col transition-all duration-200`}>
+          {showPlaylist && (
+            <>
+              <div className="flex items-center justify-between px-3 py-2 border-b border-white/5">
+                <span className="text-xs font-medium text-white/60">播放列表</span>
+                <span className="text-[10px] text-white/30">{playlist.length} 首</span>
               </div>
-              <div className="text-xs text-white/30 font-mono">{fmt(s.duration)}</div>
-              {i === current && playing && (
-                <div className="flex gap-0.5 items-end h-3">
-                  <div className="w-0.5 bg-emerald-400 animate-[music-bar_0.6s_ease-in-out_infinite]" style={{ height: '60%' }} />
-                  <div className="w-0.5 bg-emerald-400 animate-[music-bar_0.8s_ease-in-out_infinite]" style={{ height: '100%' }} />
-                  <div className="w-0.5 bg-emerald-400 animate-[music-bar_0.5s_ease-in-out_infinite]" style={{ height: '40%' }} />
+              <div className="flex-1 overflow-y-auto">
+                {playlist.map((song, idx) => (
+                  <div
+                    key={`${song.id}-${idx}`}
+                    onClick={() => playSong(song, idx)}
+                    className={`flex items-center gap-2 px-3 py-2 cursor-pointer transition-colors ${current === idx ? 'bg-white/5' : 'hover:bg-white/[0.02]'}`}
+                  >
+                    <div className="w-5 text-center text-[10px] text-white/30 shrink-0">
+                      {current === idx && playing ? <TrendingUp className="w-3 h-3 text-emerald-400" /> : idx + 1}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className={`text-xs truncate ${current === idx ? 'text-emerald-400' : 'text-white/70'}`}>{song.title}</div>
+                      <div className="text-[10px] text-white/30 truncate">{song.artist}</div>
+                    </div>
+                    <button
+                      onClick={e => { e.stopPropagation(); setLiked(prev => {
+                        const next = new Set(prev);
+                        if (next.has(song.id)) next.delete(song.id); else next.add(song.id);
+                        return next;
+                      }); }}
+                      className="shrink-0"
+                    >
+                      <Heart className={`w-3.5 h-3.5 ${liked.has(song.id) ? 'text-red-400 fill-red-400' : 'text-white/20'}`} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
+
+        {/* Player Area */}
+        <div className="flex-1 flex flex-col">
+          {/* Album Art / Visualizer */}
+          <div className="flex-1 flex items-center justify-center p-6">
+            <div className="relative">
+              <div className={`w-48 h-48 rounded-2xl bg-gradient-to-br from-emerald-500/20 to-purple-500/20 border border-white/5 flex items-center justify-center ${playing ? 'animate-pulse' : ''}`}>
+                {mode === 'local' && playlist[current]?.isLocal ? (
+                  <Upload className="w-16 h-16 text-white/20" />
+                ) : (
+                  <Disc3 className={`w-16 h-16 text-white/20 ${playing ? 'animate-spin' : ''}`} style={{ animationDuration: '8s' }} />
+                )}
+              </div>
+              {playing && (
+                <div className="absolute -bottom-2 left-1/2 -translate-x-1/2 flex gap-0.5">
+                  {[1, 2, 3, 4].map(i => (
+                    <div key={i} className="w-1 bg-emerald-400/60 rounded-full animate-pulse" style={{ height: `${Math.random() * 16 + 4}px`, animationDelay: `${i * 0.1}s` }} />
+                  ))}
                 </div>
               )}
             </div>
-          ))}
-        </div>
-      </div>
-
-      {/* Error toast */}
-      {apiError && (
-        <div className="mx-4 mb-2 p-3 bg-red-500/10 border border-red-500/20 rounded-lg flex items-start gap-2">
-          <AlertCircle className="w-4 h-4 text-red-400 shrink-0 mt-0.5" />
-          <div className="text-xs text-red-300 whitespace-pre-line">{apiError}</div>
-        </div>
-      )}
-
-      {/* Player controls */}
-      <div className="border-t border-white/5 px-4 py-3 bg-white/[0.02]">
-        {/* Progress */}
-        <div className="flex items-center gap-3 mb-3">
-          <span className="text-[10px] text-white/40 font-mono w-8 text-right">{fmt(progress)}</span>
-          <input
-            type="range"
-            min={0}
-            max={duration || 1}
-            value={Math.min(progress, duration || 0)}
-            onChange={handleSeek}
-            className="flex-1 h-1 bg-white/10 rounded-full appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-2.5 [&::-webkit-slider-thumb]:h-2.5 [&::-webkit-slider-thumb]:bg-emerald-400 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:cursor-pointer"
-          />
-          <span className="text-[10px] text-white/40 font-mono w-8">{fmt(duration)}</span>
-        </div>
-
-        {/* Controls */}
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-1">
-            <button className="p-1.5 text-white/40 hover:text-white/70 transition-colors">
-              <Heart className={`w-4 h-4 ${liked.has(current) ? 'fill-red-400 text-red-400' : ''}`} />
-            </button>
           </div>
 
-          <div className="flex items-center gap-3">
-            <button className="p-1.5 text-white/40 hover:text-white/70 transition-colors">
+          {/* Song Info */}
+          <div className="px-6 pb-2 text-center">
+            <div className="text-sm font-medium text-white/90 truncate">{playlist[current]?.title || '未播放'}</div>
+            <div className="text-xs text-white/40 mt-0.5">{playlist[current]?.artist || '未知艺术家'}</div>
+          </div>
+
+          {/* Progress */}
+          <div className="px-6 py-2">
+            <div
+              className="h-1 bg-white/10 rounded-full cursor-pointer relative group"
+              onClick={e => {
+                const rect = e.currentTarget.getBoundingClientRect();
+                const percent = (e.clientX - rect.left) / rect.width;
+                if (mode === 'local') {
+                  setLocalProgress(percent * localDuration);
+                } else if (audioRef.current) {
+                  audioRef.current.currentTime = percent * (audioRef.current.duration || 0);
+                }
+              }}
+            >
+              <div
+                className="h-full bg-emerald-400 rounded-full relative"
+                style={{ width: `${mode === 'local' ? (localDuration ? (localProgress / localDuration) * 100 : 0) : (duration ? (progress / duration) * 100 : 0)}%` }}
+              >
+                <div className="absolute right-0 top-1/2 -translate-y-1/2 w-2.5 h-2.5 bg-emerald-400 rounded-full opacity-0 group-hover:opacity-100 transition-opacity" />
+              </div>
+            </div>
+            <div className="flex justify-between mt-1 text-[10px] text-white/30">
+              <span>{formatTime(mode === 'local' ? localProgress : progress)}</span>
+              <span>{formatTime(mode === 'local' ? localDuration : duration)}</span>
+            </div>
+          </div>
+
+          {/* Controls */}
+          <div className="px-6 pb-4 flex items-center justify-center gap-4">
+            <button onClick={() => setShuffle(s => !s)} className={`p-2 rounded-lg transition-colors ${shuffle ? 'text-emerald-400 bg-emerald-500/10' : 'text-white/30 hover:text-white/60'}`}>
               <Shuffle className="w-4 h-4" />
             </button>
-            <button onClick={handlePrev} className="p-1.5 text-white/60 hover:text-white transition-colors">
+            <button onClick={handlePrev} className="p-2 text-white/60 hover:text-white transition-colors">
               <SkipBack className="w-5 h-5" />
             </button>
             <button
               onClick={togglePlay}
-              className="w-10 h-10 bg-emerald-500/20 text-emerald-400 rounded-full flex items-center justify-center hover:bg-emerald-500/30 transition-colors"
+              className="w-12 h-12 rounded-full bg-emerald-500/20 border border-emerald-500/30 flex items-center justify-center text-emerald-400 hover:bg-emerald-500/30 transition-colors"
             >
               {playing ? <Pause className="w-5 h-5" /> : <Play className="w-5 h-5 ml-0.5" />}
             </button>
-            <button onClick={handleNext} className="p-1.5 text-white/60 hover:text-white transition-colors">
+            <button onClick={handleNext} className="p-2 text-white/60 hover:text-white transition-colors">
               <SkipForward className="w-5 h-5" />
             </button>
-            <button className="p-1.5 text-white/40 hover:text-white/70 transition-colors">
+            <button onClick={() => setRepeat(r => !r)} className={`p-2 rounded-lg transition-colors ${repeat ? 'text-emerald-400 bg-emerald-500/10' : 'text-white/30 hover:text-white/60'}`}>
               <Repeat className="w-4 h-4" />
             </button>
           </div>
 
-          <div className="flex items-center gap-2">
-            <button onClick={() => setMuted(!muted)} className="p-1.5 text-white/40 hover:text-white/70 transition-colors">
+          {/* Volume & Playlist Toggle */}
+          <div className="px-6 pb-3 flex items-center gap-3">
+            <button onClick={() => setMuted(m => !m)} className="text-white/40 hover:text-white/60 transition-colors">
               {muted || volume === 0 ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
             </button>
-            <input
-              type="range"
-              min={0}
-              max={1}
-              step={0.01}
-              value={volume}
-              onChange={e => setVolume(Number(e.target.value))}
-              className="w-16 h-1 bg-white/10 rounded-full appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-2 [&::-webkit-slider-thumb]:h-2 [&::-webkit-slider-thumb]:bg-white/60 [&::-webkit-slider-thumb]:rounded-full"
-            />
+            <div className="flex-1 h-1 bg-white/10 rounded-full cursor-pointer relative group" ref={volumeRef} onClick={e => {
+              const rect = e.currentTarget.getBoundingClientRect();
+              const percent = (e.clientX - rect.left) / rect.width;
+              setVolume(Math.max(0, Math.min(1, percent)));
+            }}>
+              <div className="h-full bg-white/40 rounded-full" style={{ width: `${volume * 100}%` }}>
+                <div className="absolute right-0 top-1/2 -translate-y-1/2 w-2 h-2 bg-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity" />
+              </div>
+            </div>
+            <button onClick={() => setShowPlaylist(p => !p)} className={`text-white/40 hover:text-white/60 transition-colors ${showPlaylist ? 'text-emerald-400' : ''}`}>
+              <ListMusic className="w-4 h-4" />
+            </button>
           </div>
-        </div>
 
-        {/* Current song info */}
-        <div className="mt-3 flex items-center gap-3">
-          <div className="w-10 h-10 rounded-lg bg-white/5 flex items-center justify-center shrink-0">
-            {song?.picUrl ? (
-              <img src={song.picUrl} alt="" className="w-full h-full rounded-lg object-cover" />
-            ) : (
-              <Music className="w-5 h-5 text-white/20" />
-            )}
-          </div>
-          <div className="flex-1 min-w-0">
-            <div className="text-sm text-white/90 truncate">{song?.title || '未播放'}</div>
-            <div className="text-xs text-white/40 truncate">{song?.artist || '选择一首歌曲'}</div>
-          </div>
+          {/* API Error */}
+          {apiError && (
+            <div className="px-6 pb-3 flex items-center gap-2 text-[10px] text-red-400/80">
+              <AlertCircle className="w-3 h-3 shrink-0" />
+              <span className="whitespace-pre-line">{apiError}</span>
+            </div>
+          )}
+
+          {/* Local Mode Upload */}
+          {mode === 'local' && (
+            <div className="px-6 pb-4">
+              <label className="flex items-center justify-center gap-2 py-2 bg-white/5 border border-white/10 border-dashed rounded-lg cursor-pointer hover:bg-white/[0.07] transition-colors">
+                <Upload className="w-4 h-4 text-white/40" />
+                <span className="text-xs text-white/50">上传本地音频文件 (MP3/FLAC/OGG)</span>
+                <input type="file" accept="audio/*" multiple className="hidden" onChange={handleFileUpload} />
+              </label>
+            </div>
+          )}
         </div>
       </div>
+
+      {/* Hidden audio element for online modes */}
+      {mode !== 'local' && <audio ref={audioRef} className="hidden" />}
     </div>
   );
 }
