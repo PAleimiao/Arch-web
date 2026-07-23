@@ -2,7 +2,8 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Play, Pause, SkipBack, SkipForward, Shuffle, Repeat, Heart,
   ListMusic, Search, Loader2, Volume2, VolumeX, TrendingUp, Clock,
-  AlertCircle, Disc3, Settings, X, Save, RotateCcw, Check, ExternalLink
+  AlertCircle, Disc3, Settings, X, Save, RotateCcw, Check, ExternalLink,
+  Music, Upload, Radio
 } from 'lucide-react';
 
 // Default Netease Cloud Music API endpoints
@@ -16,6 +17,8 @@ interface Song {
   album: string;
   duration: number;
   picUrl?: string;
+  isLocal?: boolean;
+  localUrl?: string;
 }
 
 interface SearchResult {
@@ -36,6 +39,92 @@ const FALLBACK_PLAYLIST: Song[] = [
   { id: 32507038, title: '演员', artist: '薛之谦', album: '绅士', duration: 261 },
   { id: 418603077, title: '告白气球', artist: '周杰伦', album: '周杰伦的床边故事', duration: 207 },
 ];
+
+// 本地合成器播放列表 —— 不依赖任何外部API，听个响
+const LOCAL_PLAYLIST: Song[] = [
+  { id: -1, title: '小星星', artist: '本地合成器', album: '内置音效', duration: 28 },
+  { id: -2, title: '卡农片段', artist: '本地合成器', album: '内置音效', duration: 40 },
+  { id: -3, title: '电子节拍', artist: '本地合成器', album: '内置音效', duration: 32 },
+  { id: -4, title: '正弦扫频', artist: '本地合成器', album: '内置音效', duration: 10 },
+  { id: -5, title: '粉红噪音', artist: '本地合成器', album: '内置音效', duration: 60 },
+  { id: -6, title: '8-Bit 冒险', artist: '本地合成器', album: '内置音效', duration: 24 },
+];
+
+// 音符频率表 (C4 - B4)
+const NOTE_FREQ: Record<string, number> = {
+  C4: 261.63, D4: 293.66, E4: 329.63, F4: 349.23, G4: 392.00, A4: 440.00, B4: 493.88,
+  C5: 523.25, D5: 587.33, E5: 659.25, F5: 698.46, G5: 783.99, A5: 880.00, B5: 987.77,
+  C3: 130.81, D3: 146.83, E3: 164.81, F3: 174.61, G3: 196.00, A3: 220.00, B3: 246.94,
+  rest: 0,
+};
+
+// 旋律数据
+const MELODIES: Record<number, { note: string; duration: number; type?: OscillatorType }[]> = {
+  // 小星星
+  [-1]: [
+    { note: 'C4', duration: 0.5 }, { note: 'C4', duration: 0.5 }, { note: 'G4', duration: 0.5 }, { note: 'G4', duration: 0.5 },
+    { note: 'A4', duration: 0.5 }, { note: 'A4', duration: 0.5 }, { note: 'G4', duration: 1.0 },
+    { note: 'F4', duration: 0.5 }, { note: 'F4', duration: 0.5 }, { note: 'E4', duration: 0.5 }, { note: 'E4', duration: 0.5 },
+    { note: 'D4', duration: 0.5 }, { note: 'D4', duration: 0.5 }, { note: 'C4', duration: 1.0 },
+    { note: 'G4', duration: 0.5 }, { note: 'G4', duration: 0.5 }, { note: 'F4', duration: 0.5 }, { note: 'F4', duration: 0.5 },
+    { note: 'E4', duration: 0.5 }, { note: 'E4', duration: 0.5 }, { note: 'D4', duration: 1.0 },
+    { note: 'G4', duration: 0.5 }, { note: 'G4', duration: 0.5 }, { note: 'F4', duration: 0.5 }, { note: 'F4', duration: 0.5 },
+    { note: 'E4', duration: 0.5 }, { note: 'E4', duration: 0.5 }, { note: 'D4', duration: 1.0 },
+    { note: 'C4', duration: 0.5 }, { note: 'C4', duration: 0.5 }, { note: 'G4', duration: 0.5 }, { note: 'G4', duration: 0.5 },
+    { note: 'A4', duration: 0.5 }, { note: 'A4', duration: 0.5 }, { note: 'G4', duration: 1.0 },
+    { note: 'F4', duration: 0.5 }, { note: 'F4', duration: 0.5 }, { note: 'E4', duration: 0.5 }, { note: 'E4', duration: 0.5 },
+    { note: 'D4', duration: 0.5 }, { note: 'D4', duration: 0.5 }, { note: 'C4', duration: 1.5 },
+  ],
+  // 卡农片段
+  [-2]: [
+    { note: 'C4', duration: 0.4 }, { note: 'E4', duration: 0.4 }, { note: 'G4', duration: 0.4 }, { note: 'C5', duration: 0.4 },
+    { note: 'G4', duration: 0.4 }, { note: 'E4', duration: 0.4 }, { note: 'G4', duration: 0.4 }, { note: 'D4', duration: 0.4 },
+    { note: 'F4', duration: 0.4 }, { note: 'A4', duration: 0.4 }, { note: 'C5', duration: 0.4 }, { note: 'A4', duration: 0.4 },
+    { note: 'F4', duration: 0.4 }, { note: 'A4', duration: 0.4 }, { note: 'G4', duration: 0.4 }, { note: 'E4', duration: 0.4 },
+    { note: 'C4', duration: 0.4 }, { note: 'E4', duration: 0.4 }, { note: 'G4', duration: 0.4 }, { note: 'C5', duration: 0.4 },
+    { note: 'E5', duration: 0.4 }, { note: 'D5', duration: 0.4 }, { note: 'C5', duration: 0.4 }, { note: 'B4', duration: 0.4 },
+    { note: 'C4', duration: 0.4 }, { note: 'E4', duration: 0.4 }, { note: 'G4', duration: 0.4 }, { note: 'C5', duration: 0.4 },
+    { note: 'G4', duration: 0.4 }, { note: 'E4', duration: 0.4 }, { note: 'C4', duration: 0.8 },
+  ],
+  // 电子节拍
+  [-3]: [
+    { note: 'C3', duration: 0.2, type: 'square' }, { note: 'rest', duration: 0.1 },
+    { note: 'C3', duration: 0.2, type: 'square' }, { note: 'rest', duration: 0.1 },
+    { note: 'G3', duration: 0.2, type: 'square' }, { note: 'rest', duration: 0.1 },
+    { note: 'C3', duration: 0.2, type: 'square' }, { note: 'rest', duration: 0.1 },
+    { note: 'C3', duration: 0.2, type: 'square' }, { note: 'rest', duration: 0.1 },
+    { note: 'C3', duration: 0.2, type: 'square' }, { note: 'rest', duration: 0.1 },
+    { note: 'G3', duration: 0.2, type: 'square' }, { note: 'rest', duration: 0.1 },
+    { note: 'C3', duration: 0.2, type: 'square' }, { note: 'rest', duration: 0.1 },
+    { note: 'C3', duration: 0.2, type: 'square' }, { note: 'rest', duration: 0.1 },
+    { note: 'C3', duration: 0.2, type: 'square' }, { note: 'rest', duration: 0.1 },
+    { note: 'G3', duration: 0.2, type: 'square' }, { note: 'rest', duration: 0.1 },
+    { note: 'C3', duration: 0.2, type: 'square' }, { note: 'rest', duration: 0.1 },
+    { note: 'C3', duration: 0.2, type: 'square' }, { note: 'rest', duration: 0.1 },
+    { note: 'C3', duration: 0.2, type: 'square' }, { note: 'rest', duration: 0.1 },
+    { note: 'G3', duration: 0.2, type: 'square' }, { note: 'rest', duration: 0.1 },
+    { note: 'C3', duration: 0.2, type: 'square' }, { note: 'rest', duration: 0.1 },
+  ],
+  // 8-Bit 冒险
+  [-6]: [
+    { note: 'E4', duration: 0.15, type: 'square' }, { note: 'G4', duration: 0.15, type: 'square' },
+    { note: 'A4', duration: 0.15, type: 'square' }, { note: 'B4', duration: 0.3, type: 'square' },
+    { note: 'A4', duration: 0.15, type: 'square' }, { note: 'G4', duration: 0.15, type: 'square' },
+    { note: 'E4', duration: 0.3, type: 'square' },
+    { note: 'D4', duration: 0.15, type: 'square' }, { note: 'E4', duration: 0.15, type: 'square' },
+    { note: 'G4', duration: 0.15, type: 'square' }, { note: 'E4', duration: 0.3, type: 'square' },
+    { note: 'D4', duration: 0.15, type: 'square' }, { note: 'C4', duration: 0.15, type: 'square' },
+    { note: 'D4', duration: 0.3, type: 'square' },
+    { note: 'E4', duration: 0.15, type: 'square' }, { note: 'G4', duration: 0.15, type: 'square' },
+    { note: 'A4', duration: 0.15, type: 'square' }, { note: 'B4', duration: 0.3, type: 'square' },
+    { note: 'A4', duration: 0.15, type: 'square' }, { note: 'G4', duration: 0.15, type: 'square' },
+    { note: 'E4', duration: 0.3, type: 'square' },
+    { note: 'D4', duration: 0.15, type: 'square' }, { note: 'E4', duration: 0.15, type: 'square' },
+    { note: 'G4', duration: 0.15, type: 'square' }, { note: 'E4', duration: 0.3, type: 'square' },
+    { note: 'D4', duration: 0.15, type: 'square' }, { note: 'C4', duration: 0.15, type: 'square' },
+    { note: 'C4', duration: 0.6, type: 'square' },
+  ],
+};
 
 // Load saved API settings
 function loadApiSettings() {
@@ -63,6 +152,12 @@ export default function MusicPlayer() {
   const [editBackup, setEditBackup] = useState(apiSettings.backup);
   const [testStatus, setTestStatus] = useState<'idle' | 'testing' | 'success' | 'error'>('idle');
 
+  // mode: 'netease' | 'local'
+  const [mode, setMode] = useState<'netease' | 'local'>(() => {
+    try { return localStorage.getItem('music-player-mode') as 'netease' | 'local' || 'netease'; }
+    catch { return 'netease'; }
+  });
+
   const [playlist, setPlaylist] = useState<Song[]>(FALLBACK_PLAYLIST);
   const [current, setCurrent] = useState(0);
   const [playing, setPlaying] = useState(false);
@@ -79,9 +174,14 @@ export default function MusicPlayer() {
   const [showSearch, setShowSearch] = useState(false);
   const [apiError, setApiError] = useState<string | null>(null);
 
-  // Audio ref
+  // Audio refs
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const progressRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const audioCtxRef = useRef<AudioContext | null>(null);
+  const localOscRef = useRef<OscillatorNode | null>(null);
+  const localGainRef = useRef<GainNode | null>(null);
+  const localTimeoutRef = useRef<ReturnType<typeof setTimeout>[]>([]);
+  const localStartTimeRef = useRef<number>(0);
 
   const API_BASE = apiSettings.primary;
   const API_BACKUP = apiSettings.backup;
@@ -97,22 +197,20 @@ export default function MusicPlayer() {
         audioRef.current.src = '';
       }
       if (progressRef.current) clearInterval(progressRef.current);
+      stopLocalAudio();
     };
   }, []);
 
-  // Handle audio events
+  // Handle audio events (netease mode)
   useEffect(() => {
+    if (mode !== 'netease') return;
     const audio = audioRef.current;
     if (!audio) return;
 
-    const handleEnded = () => {
-      handleNext();
-    };
-
+    const handleEnded = () => { handleNext(); };
     const handleLoadedMetadata = () => {
       setDuration(audio.duration || playlist[current]?.duration || 0);
     };
-
     const handleError = () => {
       console.error('Audio playback error');
       setApiError('音频加载失败，请尝试切换歌曲');
@@ -129,10 +227,11 @@ export default function MusicPlayer() {
       audio.removeEventListener('loadedmetadata', handleLoadedMetadata);
       audio.removeEventListener('error', handleError);
     };
-  }, [current, playlist]);
+  }, [current, playlist, mode]);
 
-  // Update progress
+  // Update progress (netease mode)
   useEffect(() => {
+    if (mode !== 'netease') return;
     if (playing) {
       progressRef.current = setInterval(() => {
         if (audioRef.current) {
@@ -144,14 +243,170 @@ export default function MusicPlayer() {
       if (progressRef.current) clearInterval(progressRef.current);
     }
     return () => { if (progressRef.current) clearInterval(progressRef.current); };
-  }, [playing, current, playlist]);
+  }, [playing, current, playlist, mode]);
+
+  // Local mode progress updater
+  useEffect(() => {
+    if (mode !== 'local') return;
+    if (playing) {
+      progressRef.current = setInterval(() => {
+        const elapsed = (Date.now() - localStartTimeRef.current) / 1000;
+        const dur = playlist[current]?.duration || 0;
+        setProgress(Math.min(elapsed, dur));
+        setDuration(dur);
+        if (elapsed >= dur) {
+          handleNext();
+        }
+      }, 500);
+    } else {
+      if (progressRef.current) clearInterval(progressRef.current);
+    }
+    return () => { if (progressRef.current) clearInterval(progressRef.current); };
+  }, [playing, current, playlist, mode]);
 
   // Volume control
   useEffect(() => {
     if (audioRef.current) {
       audioRef.current.volume = muted ? 0 : volume;
     }
+    if (localGainRef.current && audioCtxRef.current) {
+      localGainRef.current.gain.setValueAtTime(muted ? 0 : volume * 0.3, audioCtxRef.current.currentTime);
+    }
   }, [volume, muted]);
+
+  // Save mode
+  useEffect(() => {
+    localStorage.setItem('music-player-mode', mode);
+  }, [mode]);
+
+  // Switch mode -> reset playlist
+  const handleSwitchMode = useCallback((newMode: 'netease' | 'local') => {
+    setPlaying(false);
+    setProgress(0);
+    setApiError(null);
+    stopLocalAudio();
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current.src = '';
+    }
+    setMode(newMode);
+    if (newMode === 'local') {
+      setPlaylist(LOCAL_PLAYLIST);
+    } else {
+      setPlaylist(FALLBACK_PLAYLIST);
+    }
+    setCurrent(0);
+  }, []);
+
+  // Stop local audio
+  const stopLocalAudio = useCallback(() => {
+    localTimeoutRef.current.forEach(t => clearTimeout(t));
+    localTimeoutRef.current = [];
+    if (localOscRef.current) {
+      try { localOscRef.current.stop(); } catch { /* ignore */ }
+      localOscRef.current = null;
+    }
+    if (localGainRef.current) {
+      try { localGainRef.current.disconnect(); } catch { /* ignore */ }
+      localGainRef.current = null;
+    }
+  }, []);
+
+  // Play local song using Web Audio API
+  const playLocalSong = useCallback((song: Song, index: number) => {
+    stopLocalAudio();
+    setCurrent(index);
+    setProgress(0);
+    localStartTimeRef.current = Date.now();
+
+    const songId = song.id;
+
+    // 正弦扫频
+    if (songId === -4) {
+      const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
+      audioCtxRef.current = ctx;
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(200, ctx.currentTime);
+      osc.frequency.exponentialRampToValueAtTime(800, ctx.currentTime + 10);
+      gain.gain.setValueAtTime(volume * 0.3, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 10);
+      osc.start();
+      osc.stop(ctx.currentTime + 10);
+      localOscRef.current = osc;
+      localGainRef.current = gain;
+      setPlaying(true);
+      const t = setTimeout(() => { setPlaying(false); setProgress(10); }, 10000);
+      localTimeoutRef.current.push(t);
+      return;
+    }
+
+    // 粉红噪音
+    if (songId === -5) {
+      const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
+      audioCtxRef.current = ctx;
+      const bufferSize = 2 * ctx.sampleRate;
+      const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
+      const data = buffer.getChannelData(0);
+      let lastOut = 0;
+      for (let i = 0; i < bufferSize; i++) {
+        const white = Math.random() * 2 - 1;
+        data[i] = (lastOut + 0.02 * white) / 1.02;
+        lastOut = data[i];
+        data[i] *= 3.5;
+      }
+      const noise = ctx.createBufferSource();
+      noise.buffer = buffer;
+      const gain = ctx.createGain();
+      noise.connect(gain);
+      gain.connect(ctx.destination);
+      gain.gain.setValueAtTime(volume * 0.2, ctx.currentTime);
+      noise.loop = true;
+      noise.start();
+      localOscRef.current = noise as any;
+      localGainRef.current = gain;
+      setPlaying(true);
+      return;
+    }
+
+    // 旋律播放
+    const melody = MELODIES[songId];
+    if (!melody || melody.length === 0) return;
+
+    const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
+    audioCtxRef.current = ctx;
+    let time = ctx.currentTime + 0.1;
+
+    melody.forEach(({ note, duration, type }) => {
+      const freq = NOTE_FREQ[note] || 0;
+      if (freq === 0) {
+        time += duration;
+        return;
+      }
+      const t = setTimeout(() => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.type = type || 'triangle';
+        osc.frequency.setValueAtTime(freq, ctx.currentTime);
+        gain.gain.setValueAtTime(0, ctx.currentTime);
+        gain.gain.linearRampToValueAtTime(volume * 0.4, ctx.currentTime + 0.05);
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + duration - 0.05);
+        osc.start(ctx.currentTime);
+        osc.stop(ctx.currentTime + duration);
+      }, (time - ctx.currentTime) * 1000);
+      localTimeoutRef.current.push(t);
+      time += duration;
+    });
+
+    setPlaying(true);
+    const endT = setTimeout(() => { setPlaying(false); }, (time - ctx.currentTime) * 1000);
+    localTimeoutRef.current.push(endT);
+  }, [volume, stopLocalAudio]);
 
   // Test API connection
   const testApi = useCallback(async () => {
@@ -189,8 +444,13 @@ export default function MusicPlayer() {
     saveApiSettings(DEFAULT_API_BASE, DEFAULT_API_BACKUP);
   }, []);
 
-  // Fetch song URL and play
+  // Fetch song URL and play (netease mode)
   const playSong = useCallback(async (song: Song, index: number) => {
+    if (mode === 'local') {
+      playLocalSong(song, index);
+      return;
+    }
+
     setApiError(null);
     setCurrent(index);
     setProgress(0);
@@ -236,9 +496,19 @@ export default function MusicPlayer() {
       setTimeout(() => setApiError(null), 4000);
       setDuration(song.duration);
     }
-  }, [API_BASE, API_BACKUP]);
+  }, [API_BASE, API_BACKUP, mode, playLocalSong]);
 
   const togglePlay = useCallback(() => {
+    if (mode === 'local') {
+      if (playing) {
+        stopLocalAudio();
+        setPlaying(false);
+      } else {
+        playLocalSong(playlist[current], current);
+      }
+      return;
+    }
+
     if (!audioRef.current?.src) {
       playSong(playlist[current], current);
       return;
@@ -250,7 +520,7 @@ export default function MusicPlayer() {
     } else {
       audioRef.current?.play().then(() => setPlaying(true)).catch(() => setPlaying(false));
     }
-  }, [playing, current, playlist, playSong]);
+  }, [playing, current, playlist, playSong, mode, playLocalSong, stopLocalAudio]);
 
   const handleNext = useCallback(() => {
     const next = (current + 1) % playlist.length;
@@ -262,8 +532,9 @@ export default function MusicPlayer() {
     playSong(playlist[prev], prev);
   }, [current, playlist, playSong]);
 
-  // Search songs
+  // Search songs (netease only)
   const handleSearch = useCallback(async () => {
+    if (mode !== 'netease') return;
     if (!searchQuery.trim()) return;
     setSearching(true);
     setApiError(null);
@@ -295,7 +566,7 @@ export default function MusicPlayer() {
     } finally {
       setSearching(false);
     }
-  }, [searchQuery, API_BASE, API_BACKUP]);
+  }, [searchQuery, API_BASE, API_BACKUP, mode]);
 
   // Add search result to playlist
   const addToPlaylist = useCallback((result: SearchResult) => {
@@ -312,395 +583,359 @@ export default function MusicPlayer() {
       if (prev.some(s => s.id === newSong.id)) return prev;
       return [...prev, newSong];
     });
-
-    const newIndex = playlist.length;
-    playSong(newSong, newIndex);
-    setShowSearch(false);
-  }, [playlist, playSong]);
-
-  // Toggle like
-  const toggleLike = useCallback((i: number) => {
-    setLiked(prev => {
-      const next = new Set(prev);
-      if (next.has(i)) next.delete(i); else next.add(i);
-      return next;
-    });
   }, []);
+
+  // Handle file upload (local mode)
+  const handleFileUpload = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files) return;
+
+    Array.from(files).forEach(file => {
+      if (!file.type.startsWith('audio/')) return;
+      const url = URL.createObjectURL(file);
+      const newSong: Song = {
+        id: Date.now() + Math.random(),
+        title: file.name.replace(/\.[^/.]+$/, ''),
+        artist: '本地文件',
+        album: '上传音乐',
+        duration: 0,
+        isLocal: true,
+        localUrl: url,
+      };
+      // 获取音频时长
+      const tempAudio = new Audio(url);
+      tempAudio.addEventListener('loadedmetadata', () => {
+        newSong.duration = Math.floor(tempAudio.duration);
+        setPlaylist(prev => [...prev, newSong]);
+      });
+      tempAudio.addEventListener('error', () => {
+        setPlaylist(prev => [...prev, newSong]);
+      });
+    });
+
+    e.target.value = '';
+  }, []);
+
+  // Play uploaded local file
+  const playUploadedFile = useCallback((song: Song, index: number) => {
+    if (!song.localUrl) return;
+    stopLocalAudio();
+    if (audioRef.current) {
+      audioRef.current.src = song.localUrl;
+      audioRef.current.currentTime = 0;
+      audioRef.current.play().then(() => {
+        setPlaying(true);
+        setCurrent(index);
+        setProgress(0);
+      }).catch(() => setPlaying(false));
+    }
+  }, [stopLocalAudio]);
+
+  // Override playSong for uploaded files
+  const handlePlaySong = useCallback((song: Song, index: number) => {
+    if (song.isLocal && song.localUrl) {
+      playUploadedFile(song, index);
+      return;
+    }
+    playSong(song, index);
+  }, [playSong, playUploadedFile]);
+
+  // Seek (netease only)
+  const handleSeek = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const val = Number(e.target.value);
+    if (mode === 'netease' && audioRef.current) {
+      audioRef.current.currentTime = val;
+      setProgress(val);
+    }
+  }, [mode]);
 
   // Format time
-  const formatTime = useCallback((s: number) => {
-    if (!isFinite(s) || isNaN(s)) return '0:00';
-    return `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
-  }, []);
+  const fmt = (s: number) => {
+    const m = Math.floor(s / 60);
+    const sec = Math.floor(s % 60);
+    return `${m}:${sec.toString().padStart(2, '0')}`;
+  };
 
-  // Handle progress bar click
-  const handleProgressClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
-    const rect = e.currentTarget.getBoundingClientRect();
-    const ratio = (e.clientX - rect.left) / rect.width;
-    const newTime = ratio * (duration || playlist[current]?.duration || 0);
-
-    if (audioRef.current && audioRef.current.src) {
-      audioRef.current.currentTime = newTime;
-    }
-    setProgress(newTime);
-  }, [duration, current, playlist]);
-
-  // Handle keyboard shortcuts
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.target instanceof HTMLInputElement) return;
-      if (e.code === 'Space') {
-        e.preventDefault();
-        togglePlay();
-      } else if (e.code === 'ArrowRight' && e.ctrlKey) {
-        e.preventDefault();
-        handleNext();
-      } else if (e.code === 'ArrowLeft' && e.ctrlKey) {
-        e.preventDefault();
-        handlePrev();
-      }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [togglePlay, handleNext, handlePrev]);
-
-  const currentSong = playlist[current];
+  // Current song
+  const song = playlist[current] || playlist[0];
 
   return (
-    <div className="w-full h-full flex flex-col" style={{ background: 'rgba(0, 18, 51, 0.95)' }}>
-      {/* Top Bar - Search & Settings */}
-      <div className="flex items-center gap-2 px-4 py-2 border-b border-white/5">
-        <button
-          onClick={() => { setShowSearch(!showSearch); setShowSettings(false); }}
-          className={`p-2 rounded-lg transition-colors ${showSearch ? 'bg-cyan-400/20 text-cyan-400' : 'hover:bg-white/5 text-muted-foreground'}`}
-        >
-          <Search size={16} />
-        </button>
+    <div className="flex flex-col h-full bg-[#0a0a0a] text-white select-none overflow-hidden">
+      {/* Top bar */}
+      <div className="flex items-center justify-between px-4 py-3 border-b border-white/5">
+        <div className="flex items-center gap-2">
+          <Disc3 className="w-5 h-5 text-emerald-400" />
+          <span className="font-medium text-sm">音乐播放器</span>
+          {mode === 'local' && (
+            <span className="text-[10px] bg-emerald-500/20 text-emerald-400 px-1.5 py-0.5 rounded">本地模式</span>
+          )}
+        </div>
+        <div className="flex items-center gap-2">
+          {/* Mode switch */}
+          <div className="flex items-center bg-white/5 rounded-lg p-0.5">
+            <button
+              onClick={() => handleSwitchMode('netease')}
+              className={`px-2 py-1 text-xs rounded-md transition-colors ${mode === 'netease' ? 'bg-emerald-500/20 text-emerald-400' : 'text-white/50 hover:text-white'}`}
+            >
+              网易云
+            </button>
+            <button
+              onClick={() => handleSwitchMode('local')}
+              className={`px-2 py-1 text-xs rounded-md transition-colors ${mode === 'local' ? 'bg-emerald-500/20 text-emerald-400' : 'text-white/50 hover:text-white'}`}
+            >
+              本地
+            </button>
+          </div>
 
-        {showSearch && (
-          <div className="flex items-center gap-2 flex-1">
+          {mode === 'netease' && (
+            <button
+              onClick={() => setShowSearch(!showSearch)}
+              className={`p-1.5 rounded-lg transition-colors ${showSearch ? 'bg-emerald-500/20 text-emerald-400' : 'hover:bg-white/5 text-white/60'}`}
+            >
+              <Search className="w-4 h-4" />
+            </button>
+          )}
+          <button
+            onClick={() => setShowSettings(!showSettings)}
+            className={`p-1.5 rounded-lg transition-colors ${showSettings ? 'bg-emerald-500/20 text-emerald-400' : 'hover:bg-white/5 text-white/60'}`}
+          >
+            <Settings className="w-4 h-4" />
+          </button>
+        </div>
+      </div>
+
+      {/* API Settings Panel */}
+      {showSettings && (
+        <div className="px-4 py-3 border-b border-white/5 bg-white/[0.02]">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-xs font-medium text-white/60">API 设置</span>
+            <button onClick={handleResetSettings} className="text-[10px] text-white/40 hover:text-white/70 flex items-center gap-1">
+              <RotateCcw className="w-3 h-3" /> 恢复默认
+            </button>
+          </div>
+          <div className="space-y-2">
+            <div>
+              <label className="text-[10px] text-white/40 block mb-1">主 API</label>
+              <div className="flex gap-2">
+                <input
+                  value={editPrimary}
+                  onChange={e => setEditPrimary(e.target.value)}
+                  className="flex-1 bg-white/5 border border-white/10 rounded px-2 py-1 text-xs text-white/80 focus:outline-none focus:border-emerald-500/50"
+                  placeholder={DEFAULT_API_BASE}
+                />
+                <button
+                  onClick={testApi}
+                  className="px-2 py-1 bg-white/5 border border-white/10 rounded text-[10px] text-white/60 hover:bg-white/10 transition-colors"
+                >
+                  {testStatus === 'testing' ? <Loader2 className="w-3 h-3 animate-spin" /> :
+                   testStatus === 'success' ? <Check className="w-3 h-3 text-emerald-400" /> :
+                   testStatus === 'error' ? <AlertCircle className="w-3 h-3 text-red-400" /> : '测试'}
+                </button>
+              </div>
+            </div>
+            <div>
+              <label className="text-[10px] text-white/40 block mb-1">备用 API</label>
+              <input
+                value={editBackup}
+                onChange={e => setEditBackup(e.target.value)}
+                className="w-full bg-white/5 border border-white/10 rounded px-2 py-1 text-xs text-white/80 focus:outline-none focus:border-emerald-500/50"
+                placeholder={DEFAULT_API_BACKUP}
+              />
+            </div>
+            <div className="flex gap-2 pt-1">
+              <button
+                onClick={handleSaveSettings}
+                className="flex-1 flex items-center justify-center gap-1 py-1.5 bg-emerald-500/20 text-emerald-400 rounded text-xs hover:bg-emerald-500/30 transition-colors"
+              >
+                <Save className="w-3 h-3" /> 保存
+              </button>
+              <button
+                onClick={() => setShowSettings(false)}
+                className="flex-1 py-1.5 bg-white/5 text-white/60 rounded text-xs hover:bg-white/10 transition-colors"
+              >
+                取消
+              </button>
+            </div>
+            <p className="text-[10px] text-white/30">
+              提示：公开 API 经常失效，建议自行部署。有服务器用 Docker 跑一个最稳。
+              <a href="https://github.com/Binaryify/NeteaseCloudMusicApi" target="_blank" rel="noopener" className="text-emerald-400/60 hover:text-emerald-400 inline-flex items-center gap-0.5">
+                查看部署文档 <ExternalLink className="w-2.5 h-2.5" />
+              </a>
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* Search Panel (netease only) */}
+      {showSearch && mode === 'netease' && (
+        <div className="px-4 py-3 border-b border-white/5 bg-white/[0.02]">
+          <div className="flex gap-2 mb-2">
             <input
-              type="text"
               value={searchQuery}
               onChange={e => setSearchQuery(e.target.value)}
               onKeyDown={e => e.key === 'Enter' && handleSearch()}
               placeholder="搜索歌曲、歌手..."
-              className="flex-1 bg-white/5 border border-white/10 rounded-lg px-3 py-1.5 text-sm outline-none focus:border-cyan-400/50 transition-colors"
-              autoFocus
+              className="flex-1 bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white/80 placeholder:text-white/30 focus:outline-none focus:border-emerald-500/50"
             />
             <button
               onClick={handleSearch}
-              disabled={searching || !searchQuery.trim()}
-              className="px-3 py-1.5 rounded-lg bg-cyan-400/20 text-cyan-400 text-xs hover:bg-cyan-400/30 transition-colors disabled:opacity-50 flex items-center gap-1"
+              disabled={searching}
+              className="px-3 py-2 bg-emerald-500/20 text-emerald-400 rounded-lg text-sm hover:bg-emerald-500/30 transition-colors disabled:opacity-50"
             >
-              {searching ? <Loader2 size={14} className="animate-spin" /> : <Search size={14} />}
-              搜索
+              {searching ? <Loader2 className="w-4 h-4 animate-spin" /> : '搜索'}
             </button>
           </div>
-        )}
+          {searchResults.length > 0 && (
+            <div className="max-h-48 overflow-y-auto space-y-1">
+              {searchResults.map(r => (
+                <div key={r.id} className="flex items-center gap-2 p-2 rounded-lg hover:bg-white/5 cursor-pointer group" onClick={() => addToPlaylist(r)}>
+                  <div className="w-8 h-8 rounded bg-white/5 flex items-center justify-center">
+                    <Music className="w-4 h-4 text-white/30" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="text-xs text-white/80 truncate">{r.name}</div>
+                    <div className="text-[10px] text-white/40 truncate">{r.artists.map(a => a.name).join(' / ')} - {r.album.name}</div>
+                  </div>
+                  <button className="opacity-0 group-hover:opacity-100 p-1 text-emerald-400 hover:bg-emerald-500/10 rounded transition-all">
+                    <ListMusic className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
-        {!showSearch && !showSettings && (
-          <div className="flex items-center gap-1 text-xs text-muted-foreground flex-1">
-            <Disc3 size={14} className="text-cyan-400 animate-spin" style={{ animationDuration: '3s' }} />
-            <span>网易云音乐 Web 版</span>
-          </div>
-        )}
+      {/* Local mode upload */}
+      {mode === 'local' && (
+        <div className="px-4 py-2 border-b border-white/5">
+          <label className="flex items-center gap-2 px-3 py-2 bg-white/5 border border-white/10 border-dashed rounded-lg cursor-pointer hover:bg-white/[0.07] transition-colors">
+            <Upload className="w-4 h-4 text-white/40" />
+            <span className="text-xs text-white/50">点击上传本地音频文件（支持多选）</span>
+            <input type="file" accept="audio/*" multiple className="hidden" onChange={handleFileUpload} />
+          </label>
+          <p className="text-[10px] text-white/30 mt-1.5">
+            内置 6 首合成器音效，不依赖任何外部 API。也可以上传自己的音乐文件。
+          </p>
+        </div>
+      )}
 
-        {/* Settings Button */}
-        {!showSearch && (
-          <button
-            onClick={() => setShowSettings(!showSettings)}
-            className={`p-2 rounded-lg transition-colors ${showSettings ? 'bg-cyan-400/20 text-cyan-400' : 'hover:bg-white/5 text-muted-foreground'}`}
-            title="API 设置"
-          >
-            <Settings size={16} />
-          </button>
-        )}
-      </div>
-
-      {/* Settings Panel */}
-      {showSettings && (
-        <div className="mx-4 mt-2 p-4 rounded-xl bg-white/5 border border-white/10 space-y-3">
-          <div className="flex items-center justify-between">
-            <h3 className="text-sm font-medium text-white">API 设置</h3>
-            <button
-              onClick={() => setShowSettings(false)}
-              className="p-1 rounded hover:bg-white/10 transition-colors text-muted-foreground"
-            >
-              <X size={14} />
-            </button>
-          </div>
-
-          <div className="text-xs text-muted-foreground">
-            如果默认 API 无法使用，可以更换为其他网易云 API 镜像地址。
-            <a
-              href="https://github.com/Binaryify/NeteaseCloudMusicApi"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-cyan-400 hover:text-cyan-300 inline-flex items-center gap-0.5 ml-1"
-            >
-              查看文档 <ExternalLink size={10} />
-            </a>
-          </div>
-
-          {/* Primary API */}
-          <div className="space-y-1">
-            <label className="text-xs text-muted-foreground">主 API 地址</label>
-            <input
-              type="text"
-              value={editPrimary}
-              onChange={e => setEditPrimary(e.target.value)}
-              placeholder={DEFAULT_API_BASE}
-              className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm outline-none focus:border-cyan-400/50 transition-colors"
-            />
-          </div>
-
-          {/* Backup API */}
-          <div className="space-y-1">
-            <label className="text-xs text-muted-foreground">备用 API 地址</label>
-            <input
-              type="text"
-              value={editBackup}
-              onChange={e => setEditBackup(e.target.value)}
-              placeholder={DEFAULT_API_BACKUP}
-              className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm outline-none focus:border-cyan-400/50 transition-colors"
-            />
-          </div>
-
-          {/* Current API info */}
-          <div className="text-xs text-muted-foreground bg-white/5 rounded-lg px-3 py-2">
-            <div>当前主 API: <span className="text-cyan-400">{API_BASE}</span></div>
-            <div>当前备用: <span className="text-cyan-400">{API_BACKUP}</span></div>
-          </div>
-
-          {/* Action buttons */}
-          <div className="flex items-center gap-2">
-            <button
-              onClick={handleSaveSettings}
-              className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-cyan-400/20 text-cyan-400 text-xs hover:bg-cyan-400/30 transition-colors"
-            >
-              <Save size={12} /> 保存设置
-            </button>
-            <button
-              onClick={testApi}
-              disabled={testStatus === 'testing'}
-              className={`flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs transition-colors disabled:opacity-50 ${
-                testStatus === 'success' ? 'bg-green-500/20 text-green-400' :
-                testStatus === 'error' ? 'bg-red-500/20 text-red-400' :
-                'bg-white/10 text-muted-foreground hover:bg-white/20'
+      {/* Playlist */}
+      <div className="flex-1 overflow-y-auto px-2 py-2">
+        <div className="space-y-0.5">
+          {playlist.map((s, i) => (
+            <div
+              key={`${s.id}-${i}`}
+              onClick={() => handlePlaySong(s, i)}
+              className={`flex items-center gap-3 px-3 py-2.5 rounded-lg cursor-pointer transition-colors ${
+                i === current ? 'bg-emerald-500/10' : 'hover:bg-white/5'
               }`}
             >
-              {testStatus === 'testing' ? <Loader2 size={12} className="animate-spin" /> :
-               testStatus === 'success' ? <Check size={12} /> :
-               testStatus === 'error' ? <AlertCircle size={12} /> :
-               <ExternalLink size={12} />}
-              {testStatus === 'testing' ? '测试中...' :
-               testStatus === 'success' ? '连接正常' :
-               testStatus === 'error' ? '连接失败' :
-               '测试连接'}
-            </button>
-            <button
-              onClick={handleResetSettings}
-              className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-white/5 text-muted-foreground text-xs hover:bg-white/10 transition-colors ml-auto"
-            >
-              <RotateCcw size={12} /> 恢复默认
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Error Toast */}
-      {apiError && (
-        <div className="mx-4 mt-2 px-3 py-2 rounded-lg bg-red-500/20 text-red-400 text-xs flex items-center gap-2 animate-in whitespace-pre-line">
-          <AlertCircle size={14} />
-          <span>{apiError}</span>
-        </div>
-      )}
-
-      {/* Search Results */}
-      {showSearch && searchResults.length > 0 && (
-        <div className="flex-1 overflow-y-auto px-4 py-2 min-h-0">
-          <div className="text-xs text-muted-foreground mb-2 flex items-center gap-1">
-            <TrendingUp size={12} />
-            搜索结果 ({searchResults.length})
-          </div>
-          {searchResults.map((song) => (
-            <button
-              key={song.id}
-              onClick={() => addToPlaylist(song)}
-              className="w-full flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-white/5 transition-colors text-left group"
-            >
-              <div className="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 overflow-hidden" style={{ background: 'linear-gradient(135deg, #C20C0C40, #7B2CBF40)' }}>
-                {song.album.picUrl ? (
-                  <img src={song.album.picUrl} alt="" className="w-full h-full object-cover" />
-                ) : (
-                  <ListMusic size={16} className="text-muted-foreground" />
-                )}
-              </div>
+              <div className="w-8 text-center text-xs text-white/30 font-mono">{i + 1}</div>
               <div className="flex-1 min-w-0">
-                <div className="text-sm truncate">{song.name}</div>
-                <div className="text-xs text-muted-foreground truncate">
-                  {song.artists.map(a => a.name).join(' / ')} - {song.album.name}
+                <div className={`text-sm truncate ${i === current ? 'text-emerald-400' : 'text-white/80'}`}>
+                  {s.title}
+                  {s.isLocal && <span className="ml-1 text-[10px] text-emerald-400/60">[本地]</span>}
                 </div>
+                <div className="text-xs text-white/40 truncate">{s.artist} - {s.album}</div>
               </div>
-              <span className="text-xs text-muted-foreground">{formatTime(Math.floor(song.duration / 1000))}</span>
-              <Play size={14} className="text-cyan-400 opacity-0 group-hover:opacity-100 transition-opacity" />
-            </button>
+              <div className="text-xs text-white/30 font-mono">{fmt(s.duration)}</div>
+              {i === current && playing && (
+                <div className="flex gap-0.5 items-end h-3">
+                  <div className="w-0.5 bg-emerald-400 animate-[music-bar_0.6s_ease-in-out_infinite]" style={{ height: '60%' }} />
+                  <div className="w-0.5 bg-emerald-400 animate-[music-bar_0.8s_ease-in-out_infinite]" style={{ height: '100%' }} />
+                  <div className="w-0.5 bg-emerald-400 animate-[music-bar_0.5s_ease-in-out_infinite]" style={{ height: '40%' }} />
+                </div>
+              )}
+            </div>
           ))}
         </div>
-      )}
+      </div>
 
-      {showSearch && searchResults.length === 0 && !searching && searchQuery && (
-        <div className="flex-1 flex items-center justify-center text-muted-foreground text-sm">
-          未找到相关歌曲
+      {/* Error toast */}
+      {apiError && (
+        <div className="mx-4 mb-2 p-3 bg-red-500/10 border border-red-500/20 rounded-lg flex items-start gap-2">
+          <AlertCircle className="w-4 h-4 text-red-400 shrink-0 mt-0.5" />
+          <div className="text-xs text-red-300 whitespace-pre-line">{apiError}</div>
         </div>
       )}
 
-      {showSearch && !searchQuery && (
-        <div className="flex-1 flex flex-col items-center justify-center text-muted-foreground gap-3">
-          <Search size={32} />
-          <div className="text-sm">输入关键词搜索歌曲</div>
-          <div className="text-xs">支持歌名、歌手搜索</div>
+      {/* Player controls */}
+      <div className="border-t border-white/5 px-4 py-3 bg-white/[0.02]">
+        {/* Progress */}
+        <div className="flex items-center gap-3 mb-3">
+          <span className="text-[10px] text-white/40 font-mono w-8 text-right">{fmt(progress)}</span>
+          <input
+            type="range"
+            min={0}
+            max={duration || 1}
+            value={Math.min(progress, duration || 0)}
+            onChange={handleSeek}
+            className="flex-1 h-1 bg-white/10 rounded-full appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-2.5 [&::-webkit-slider-thumb]:h-2.5 [&::-webkit-slider-thumb]:bg-emerald-400 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:cursor-pointer"
+          />
+          <span className="text-[10px] text-white/40 font-mono w-8">{fmt(duration)}</span>
         </div>
-      )}
 
-      {/* Main Player View */}
-      {!showSearch && !showSettings && (
-        <>
-          {/* Album Art */}
-          <div className="flex-shrink-0 p-6 flex flex-col items-center">
-            <div
-              className="w-40 h-40 rounded-xl mb-4 flex items-center justify-center overflow-hidden relative"
-              style={{ background: 'linear-gradient(135deg, #C20C0C40, #7B2CBF40)' }}
-            >
-              {currentSong?.picUrl ? (
-                <img src={currentSong.picUrl} alt="" className="w-full h-full object-cover" />
-              ) : (
-                <ListMusic size={48} className="text-muted-foreground" />
-              )}
-              {playing && (
-                <div className="absolute inset-0 flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.3)' }}>
-                  <div className="w-10 h-10 rounded-full border-2 border-white/50 flex items-center justify-center">
-                    <div className="w-2 h-2 bg-white rounded-full animate-pulse" />
-                  </div>
-                </div>
-              )}
-            </div>
-            <div className="text-center">
-              <div className="font-medium text-lg">{currentSong?.title || '未播放'}</div>
-              <div className="text-sm text-muted-foreground">{currentSong?.artist || '-'}</div>
-            </div>
-          </div>
-
-          {/* Progress */}
-          <div className="px-6 mb-2">
-            <div
-              className="w-full h-1 bg-white/10 rounded-full cursor-pointer relative group"
-              onClick={handleProgressClick}
-            >
-              <div
-                className="h-full bg-cyan-400 rounded-full transition-all relative"
-                style={{ width: `${duration ? (progress / duration) * 100 : 0}%` }}
-              >
-                <div className="absolute right-0 top-1/2 -translate-y-1/2 w-3 h-3 bg-cyan-400 rounded-full opacity-0 group-hover:opacity-100 transition-opacity shadow-lg" />
-              </div>
-            </div>
-            <div className="flex justify-between text-xs text-muted-foreground mt-1">
-              <span>{formatTime(progress)}</span>
-              <span>{formatTime(duration || currentSong?.duration || 0)}</span>
-            </div>
-          </div>
-
-          {/* Controls */}
-          <div className="flex items-center justify-center gap-4 px-6 mb-3">
-            <button className="p-2 rounded-full hover:bg-white/10 transition-colors">
-              <Shuffle size={16} className="text-muted-foreground" />
+        {/* Controls */}
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-1">
+            <button className="p-1.5 text-white/40 hover:text-white/70 transition-colors">
+              <Heart className={`w-4 h-4 ${liked.has(current) ? 'fill-red-400 text-red-400' : ''}`} />
             </button>
-            <button onClick={handlePrev} className="p-2 rounded-full hover:bg-white/10 transition-colors">
-              <SkipBack size={20} />
+          </div>
+
+          <div className="flex items-center gap-3">
+            <button className="p-1.5 text-white/40 hover:text-white/70 transition-colors">
+              <Shuffle className="w-4 h-4" />
+            </button>
+            <button onClick={handlePrev} className="p-1.5 text-white/60 hover:text-white transition-colors">
+              <SkipBack className="w-5 h-5" />
             </button>
             <button
               onClick={togglePlay}
-              className="p-3 rounded-full bg-cyan-400/20 hover:bg-cyan-400/30 transition-colors"
+              className="w-10 h-10 bg-emerald-500/20 text-emerald-400 rounded-full flex items-center justify-center hover:bg-emerald-500/30 transition-colors"
             >
-              {playing ? (
-                <Pause size={24} className="text-cyan-400" />
-              ) : (
-                <Play size={24} className="text-cyan-400 ml-0.5" />
-              )}
+              {playing ? <Pause className="w-5 h-5" /> : <Play className="w-5 h-5 ml-0.5" />}
             </button>
-            <button onClick={handleNext} className="p-2 rounded-full hover:bg-white/10 transition-colors">
-              <SkipForward size={20} />
+            <button onClick={handleNext} className="p-1.5 text-white/60 hover:text-white transition-colors">
+              <SkipForward className="w-5 h-5" />
             </button>
-            <button className="p-2 rounded-full hover:bg-white/10 transition-colors">
-              <Repeat size={16} className="text-muted-foreground" />
+            <button className="p-1.5 text-white/40 hover:text-white/70 transition-colors">
+              <Repeat className="w-4 h-4" />
             </button>
           </div>
 
-          {/* Volume */}
-          <div className="flex items-center gap-2 px-6 mb-3">
-            <button onClick={() => setMuted(!muted)} className="text-muted-foreground hover:text-white transition-colors">
-              {muted || volume === 0 ? <VolumeX size={16} /> : <Volume2 size={16} />}
+          <div className="flex items-center gap-2">
+            <button onClick={() => setMuted(!muted)} className="p-1.5 text-white/40 hover:text-white/70 transition-colors">
+              {muted || volume === 0 ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
             </button>
-            <div
-              className="flex-1 h-1 bg-white/10 rounded-full cursor-pointer relative group"
-              onClick={(e) => {
-                const rect = e.currentTarget.getBoundingClientRect();
-                const ratio = (e.clientX - rect.left) / rect.width;
-                setVolume(Math.max(0, Math.min(1, ratio)));
-                setMuted(false);
-              }}
-            >
-              <div
-                className="h-full bg-white/30 rounded-full relative"
-                style={{ width: `${muted ? 0 : volume * 100}%` }}
-              >
-                <div className="absolute right-0 top-1/2 -translate-y-1/2 w-2.5 h-2.5 bg-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity" />
-              </div>
-            </div>
-            <span className="text-xs text-muted-foreground w-8 text-right">{Math.round((muted ? 0 : volume) * 100)}%</span>
+            <input
+              type="range"
+              min={0}
+              max={1}
+              step={0.01}
+              value={volume}
+              onChange={e => setVolume(Number(e.target.value))}
+              className="w-16 h-1 bg-white/10 rounded-full appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-2 [&::-webkit-slider-thumb]:h-2 [&::-webkit-slider-thumb]:bg-white/60 [&::-webkit-slider-thumb]:rounded-full"
+            />
           </div>
+        </div>
 
-          {/* Playlist */}
-          <div className="flex-1 overflow-y-auto px-4 pb-4 min-h-0">
-            <div className="flex items-center gap-1 text-xs text-muted-foreground mb-2 px-3">
-              <Clock size={12} />
-              <span>播放列表 ({playlist.length})</span>
-            </div>
-            {playlist.map((song, i) => (
-              <button
-                key={`${song.id}-${i}`}
-                onClick={() => playSong(song, i)}
-                className="w-full flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-white/5 transition-colors text-left group"
-                style={{ background: i === current ? 'rgba(0, 180, 216, 0.1)' : 'transparent' }}
-              >
-                <span className="text-xs text-muted-foreground w-5">
-                  {i === current && playing ? (
-                    <span className="flex items-end gap-0.5 h-3">
-                      <span className="w-0.5 bg-cyan-400 animate-pulse" style={{ height: '60%', animationDelay: '0ms' }} />
-                      <span className="w-0.5 bg-cyan-400 animate-pulse" style={{ height: '100%', animationDelay: '150ms' }} />
-                      <span className="w-0.5 bg-cyan-400 animate-pulse" style={{ height: '40%', animationDelay: '300ms' }} />
-                    </span>
-                  ) : (
-                    i + 1
-                  )}
-                </span>
-                <div className="flex-1 min-w-0">
-                  <div className={`text-sm truncate ${i === current ? 'text-cyan-400' : ''}`}>{song.title}</div>
-                  <div className="text-xs text-muted-foreground truncate">{song.artist}</div>
-                </div>
-                <span className="text-xs text-muted-foreground">{formatTime(song.duration)}</span>
-                <button
-                  onClick={(e) => { e.stopPropagation(); toggleLike(i); }}
-                  className="opacity-0 group-hover:opacity-100 transition-opacity"
-                >
-                  <Heart size={14} className={liked.has(i) ? 'text-red-400' : 'text-muted-foreground'} />
-                </button>
-              </button>
-            ))}
+        {/* Current song info */}
+        <div className="mt-3 flex items-center gap-3">
+          <div className="w-10 h-10 rounded-lg bg-white/5 flex items-center justify-center shrink-0">
+            {song?.picUrl ? (
+              <img src={song.picUrl} alt="" className="w-full h-full rounded-lg object-cover" />
+            ) : (
+              <Music className="w-5 h-5 text-white/20" />
+            )}
           </div>
-        </>
-      )}
+          <div className="flex-1 min-w-0">
+            <div className="text-sm text-white/90 truncate">{song?.title || '未播放'}</div>
+            <div className="text-xs text-white/40 truncate">{song?.artist || '选择一首歌曲'}</div>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
